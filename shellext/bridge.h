@@ -39,6 +39,7 @@ public:
     int32_t (*ftex_thumb)(FoxArchive*, const wchar_t*, uint8_t**, int64_t*) = nullptr;
     int32_t (*ftex_thumb_path)(const wchar_t*, uint8_t**, int64_t*) = nullptr;
     void    (*free_blob)(uint8_t*) = nullptr;
+    void    (*trim)(void) = nullptr;   // force GC + return memory to the OS
 
     // Resolve the innermost archive for archivePath + nested chain. Returns the
     // handle (or null) and sets owns=true if the caller must close it (i.e. it
@@ -69,9 +70,46 @@ public:
 
     void ReleaseChain(FoxArchive* h, bool owns) { if (owns && h) close(h); }
 
+    // Reference-count the cached top-level handle by the number of live
+    // FoxShellFolder objects browsing that archive. A folder calls Acquire when
+    // it learns its archive path and Release when it's destroyed. When the count
+    // hits zero — i.e. the user has navigated away / closed the archive — the
+    // cached handle is closed, evicted, and a GC trim returns the (possibly
+    // large) browse-time memory to the OS instead of holding it until Explorer
+    // restarts.
+    void AcquireArchive(const std::wstring& path)
+    {
+        if (path.empty()) return;
+        std::wstring key = Lower(path);
+        EnterCriticalSection(&m_cs);
+        m_topCache[key].refs++;
+        LeaveCriticalSection(&m_cs);
+    }
+
+    void ReleaseArchive(const std::wstring& path)
+    {
+        if (path.empty() || !EnsureLoaded()) return;
+        std::wstring key = Lower(path);
+        FoxArchive* toClose = nullptr;
+        EnterCriticalSection(&m_cs);
+        auto it = m_topCache.find(key);
+        if (it != m_topCache.end() && --it->second.refs <= 0)
+        {
+            toClose = it->second.handle;
+            m_topCache.erase(it);
+        }
+        LeaveCriticalSection(&m_cs);
+        // Close + trim OUTSIDE the lock (both are managed calls).
+        if (toClose && close) close(toClose);
+        if (toClose && trim)  trim();      // only worth a GC if we actually freed an index
+    }
+
     HMODULE SelfModule() const { return m_self; }
 
 private:
+    static std::wstring Lower(const std::wstring& s)
+    { std::wstring k = s; for (auto& c : k) c = (wchar_t)towlower(c); return k; }
+
     Bridge() { InitializeCriticalSection(&m_cs); }
 
     bool DoLoad()
@@ -99,6 +137,7 @@ private:
         ftex_thumb      = (decltype(ftex_thumb))      GetProcAddress(m_dll, "foxarc_ftex_thumb");
         ftex_thumb_path = (decltype(ftex_thumb_path)) GetProcAddress(m_dll, "foxarc_ftex_thumb_path");
         free_blob   = (decltype(free_blob))   GetProcAddress(m_dll, "foxarc_free_blob");
+        trim        = (decltype(trim))        GetProcAddress(m_dll, "foxarc_trim");
 
         auto setDict = (void(*)(const wchar_t*)) GetProcAddress(m_dll, "foxarc_set_dict_dir");
         if (setDict)
@@ -112,12 +151,11 @@ private:
 
     FoxArchive* GetCachedTop(const std::wstring& path)
     {
-        std::wstring key = path;
-        for (auto& c : key) c = (wchar_t)towlower(c);
+        std::wstring key = Lower(path);
 
         EnterCriticalSection(&m_cs);
         auto it = m_topCache.find(key);
-        FoxArchive* h = (it != m_topCache.end()) ? it->second : nullptr;
+        FoxArchive* h = (it != m_topCache.end()) ? it->second.handle : nullptr;
         LeaveCriticalSection(&m_cs);
         if (h) return h;
 
@@ -125,18 +163,20 @@ private:
         if (open(path.c_str(), &opened) != FOXARC_OK || !opened) return nullptr;
 
         EnterCriticalSection(&m_cs);
-        auto it2 = m_topCache.find(key);     // re-check: another thread may have won
-        if (it2 != m_topCache.end()) { LeaveCriticalSection(&m_cs); close(opened); return it2->second; }
-        m_topCache[key] = opened;
+        auto& e = m_topCache[key];           // entry already exists (folder Acquired)
+        if (e.handle) { LeaveCriticalSection(&m_cs); close(opened); return e.handle; } // another thread won
+        e.handle = opened;
         LeaveCriticalSection(&m_cs);
         return opened;
     }
+
+    struct CacheEntry { FoxArchive* handle = nullptr; int refs = 0; };
 
     HMODULE m_self = nullptr; // set by DllMain
     HMODULE m_dll  = nullptr;
     bool    m_loaded = false;
     CRITICAL_SECTION m_cs;
-    std::map<std::wstring, FoxArchive*> m_topCache;
+    std::map<std::wstring, CacheEntry> m_topCache;
 
 public:
     void SetSelf(HMODULE h) { m_self = h; }

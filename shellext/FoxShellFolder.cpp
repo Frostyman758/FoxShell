@@ -41,6 +41,7 @@ FoxShellFolder::FoxShellFolder() { DllAddRef(); }
 
 FoxShellFolder::~FoxShellFolder()
 {
+    if (!m_acqArchive.empty()) Bridge::Get().ReleaseArchive(m_acqArchive);  // may evict + trim
     if (m_pidlAbs) CoTaskMemFree(m_pidlAbs);
     DllRelease();
 }
@@ -48,6 +49,16 @@ FoxShellFolder::~FoxShellFolder()
 std::wstring FoxShellFolder::ChildInteriorPath(const wchar_t* name) const
 {
     return m_dirPath.empty() ? std::wstring(name) : m_dirPath + L"/" + name;
+}
+
+// Move the bridge refcount from the previously-acquired archive to the current
+// m_archivePath. Called after RebuildState fills m_archivePath.
+void FoxShellFolder::SyncArchiveAcquire()
+{
+    if (m_archivePath == m_acqArchive) return;
+    if (!m_acqArchive.empty()) Bridge::Get().ReleaseArchive(m_acqArchive);
+    m_acqArchive = m_archivePath;
+    if (!m_acqArchive.empty()) Bridge::Get().AcquireArchive(m_acqArchive);
 }
 
 // Derive m_archivePath / m_chain / m_dirPath from the absolute PIDL: the
@@ -112,6 +123,7 @@ HRESULT FoxShellFolder::InitAsChild(FoxShellFolder* parent, const FoxItemID* ite
     ILFree(rel);
     if (!m_pidlAbs) return E_OUTOFMEMORY;
     RebuildState(m_pidlAbs, m_archivePath, m_chain, m_dirPath);
+    SyncArchiveAcquire();
     return S_OK;
 }
 
@@ -151,6 +163,7 @@ IFACEMETHODIMP FoxShellFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
     m_pidlAbs = ILCloneFull(pidl);
     if (!m_pidlAbs) return E_OUTOFMEMORY;
     RebuildState(m_pidlAbs, m_archivePath, m_chain, m_dirPath);
+    SyncArchiveAcquire();
     { char a[MAX_PATH]; WideCharToMultiByte(CP_ACP,0,m_archivePath.c_str(),-1,a,MAX_PATH,0,0);
       FoxLog("Initialize archivePath='%s' chain=%zu dir='%ls'", a, m_chain.size(), m_dirPath.c_str()); }
     return S_OK;

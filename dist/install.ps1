@@ -11,7 +11,7 @@
 #   pwsh -File install.ps1 -Ext .fpk,.fpkd # only these
 [CmdletBinding()]
 param(
-    [string[]]$Ext = @('.dat', '.qar', '.fpk', '.fpkd', '.pftxs', '.g0s'),
+    [string[]]$Ext = @('.dat', '.qar', '.fpk', '.fpkd', '.pftxs', '.g0s', '.sbp', '.stp', '.sab', '.fsop', '.mtar'),
     [string]$InstallDir = "$env:USERPROFILE\foxshell"
 )
 $ErrorActionPreference = 'Stop'
@@ -25,6 +25,7 @@ if (Test-Path (Join-Path $here 'foxshellext.dll')) {
     $dict      = Join-Path $here 'qar_dictionary.txt'
     $dictGz    = Join-Path $here 'gzs_dictionary.txt'
     $dictFpk   = Join-Path $here 'fpk_dictionary.txt'
+    $vgmSrc    = Join-Path $here 'vgmstream'
 } else {
     # Repo mode: pull straight from the build-output locations.
     $repo      = Split-Path -Parent $here
@@ -37,6 +38,7 @@ if (Test-Path (Join-Path $here 'foxshellext.dll')) {
     if (-not (Test-Path $dictGz)) { $dictGz = Join-Path $repo 'Fox_parser\dist\dict\gzs_dictionary.txt' }
     $dictFpk   = Join-Path (Split-Path $repo) 'gzstool\fpk_dictionary.txt'
     if (-not (Test-Path $dictFpk)) { $dictFpk = Join-Path (Split-Path $repo) 'Fox_parser\dist\dict\fpk_dictionary.txt' }
+    $vgmSrc    = Join-Path $repo 'vendor\vgmstream'
 }
 
 foreach ($f in @($bridgePub, $shellDll)) {
@@ -108,6 +110,13 @@ if (Test-Path $dict)    { [void](Install-File $dict    $InstallDir) } else { Wri
 if (Test-Path $dictGz)  { [void](Install-File $dictGz  $InstallDir) } else { Write-Warning "gzs_dictionary.txt not found; .g0s names will be hashes" }
 if (Test-Path $dictFpk) { [void](Install-File $dictFpk $InstallDir) } else { Write-Warning "fpk_dictionary.txt not found; GZ fpk entry names will be md5 hashes" }
 
+# vgmstream (bundled) — opens .wem as playable .wav. Copy the whole folder.
+if (Test-Path $vgmSrc) {
+    $vgmDst = Join-Path $InstallDir 'vgmstream'
+    New-Item -ItemType Directory -Force $vgmDst | Out-Null
+    Copy-Item (Join-Path $vgmSrc '*') $vgmDst -Recurse -Force
+} else { Write-Warning "vgmstream not found at $vgmSrc; opening a .wem will not auto-convert to .wav" }
+
 $installedShellDll = Join-Path $InstallDir 'foxshellext.dll'
 
 # Register the COM server (writes HKCU\Software\Classes\CLSID\$Clsid).
@@ -130,6 +139,11 @@ $ExtTypeName = @{
     '.fpkd'  = 'Fox Package Data'
     '.pftxs' = 'Packed Fox Textures'
     '.g0s'   = 'QAR Archive (GZ)'
+    '.sbp'   = 'Sound Bank Package'
+    '.stp'   = 'Streamed Package'
+    '.sab'   = 'Streamed Animation'
+    '.fsop'  = 'Fox Shader Object Pack'
+    '.mtar'  = 'Motion Archive'
 }
 
 # Keep the canonical base ProgID too (the CLSID's ProgID back-ref points here).

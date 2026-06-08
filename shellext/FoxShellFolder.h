@@ -70,8 +70,14 @@ private:
     // The interior path within the innermost archive for a child item.
     std::wstring ChildInteriorPath(const wchar_t* name) const;
 
+    // Keep the bridge's per-archive refcount in step with m_archivePath, so the
+    // cached archive index is evicted (and its memory trimmed) once no folder
+    // is browsing it any more.
+    void SyncArchiveAcquire();
+
     LONG m_ref = 1;
     std::wstring m_archivePath;
+    std::wstring m_acqArchive;     // the path currently acquired from Bridge
     std::vector<std::wstring> m_chain;
     std::wstring m_dirPath;
     PIDLIST_ABSOLUTE m_pidlAbs = nullptr;

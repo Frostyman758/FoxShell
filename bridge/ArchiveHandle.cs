@@ -4,6 +4,10 @@ using MgsvModBldr.Tools.Fpk.Gz;
 using MgsvModBldr.Tools.Pftxs;
 using MgsvModBldr.Tools.Pftxs.Gz;
 using MgsvModBldr.Tools.G0s;
+using MgsvModBldr.Tools.Sbp;
+using MgsvModBldr.Tools.Stp;
+using MgsvModBldr.Tools.Fsop;
+using MgsvModBldr.Tools.Mtar;
 
 namespace MgsvModBldr.Tools.NativeBridge;
 
@@ -18,7 +22,7 @@ namespace MgsvModBldr.Tools.NativeBridge;
 // QarNameDictionary.cs. This file owns lifetime, opening, and reading.
 internal sealed partial class ArchiveHandle : IDisposable
 {
-    internal enum Kind { Qar, Fpk, GzFpk, Pftxs, GzPftxs, G0s }
+    internal enum Kind { Qar, Fpk, GzFpk, Pftxs, GzPftxs, G0s, Sbp, Stp, Sab, Fsop, Mtar }
 
     private readonly Kind _kind;
     private readonly string? _filePath;   // top-level: reopen per read
@@ -56,17 +60,31 @@ internal sealed partial class ArchiveHandle : IDisposable
             }
         }
 
+        // Headerless containers, identified by extension when nothing matched.
+        if (fmt == FoxFormat.Unknown && path.EndsWith(".fsop", StringComparison.OrdinalIgnoreCase))
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (FoxFormats.IsFsop(bytes)) return OpenFsop(bytes);   // confirmed by structure
+        }
+        if (fmt == FoxFormat.Unknown && path.EndsWith(".mtar", StringComparison.OrdinalIgnoreCase))
+            return OpenMtar(File.ReadAllBytes(path));               // .mtar has no detectable magic
+
         return fmt switch
         {
             FoxFormat.Qar => OpenQar(path, null),
             FoxFormat.Fpk or FoxFormat.Fpkd => OpenFpk(path, null),
             FoxFormat.Pftxs => OpenPftxs(path, null),
             FoxFormat.G0s => OpenG0s(path, null),
-            _ => throw new InvalidDataException("not a QAR/FPK/PFTXS/G0S archive"),
+            FoxFormat.Sbp => OpenSbp(path, null),
+            FoxFormat.Stp => OpenStp(path, null),
+            FoxFormat.Sab => OpenSab(path, null),
+            _ => throw new InvalidDataException("not a recognised Fox archive"),
         };
     }
 
-    public static ArchiveHandle OpenNestedBytes(byte[] bytes)
+    // `name` is the entry's leaf name (e.g. "foo.mtar"); used only to identify
+    // headerless containers (.mtar) that have no detectable magic.
+    public static ArchiveHandle OpenNestedBytes(byte[] bytes, string? name = null)
     {
         var magic = bytes.AsSpan(0, Math.Min(bytes.Length, FoxFormats.SniffBytes));
         var fmt = FoxFormats.Detect(magic);
@@ -75,13 +93,25 @@ internal sealed partial class ArchiveHandle : IDisposable
             && FoxFormats.IsG0sFooter(bytes.AsSpan(bytes.Length - FoxFormats.FooterBytes)))
             fmt = FoxFormat.G0s;
 
+        // Headerless containers. .fsop is confirmed by its exact structure; .mtar
+        // has no detectable magic, so it's trusted by extension (OpenNested is
+        // only reached for entries the listing already flagged as containers).
+        if (fmt == FoxFormat.Unknown && FoxFormats.IsFsop(bytes))
+            return OpenFsop(bytes);
+        if (fmt == FoxFormat.Unknown && name is not null
+            && name.EndsWith(".mtar", StringComparison.OrdinalIgnoreCase))
+            return OpenMtar(bytes);
+
         return fmt switch
         {
             FoxFormat.Qar => OpenQar(null, bytes),
             FoxFormat.Fpk or FoxFormat.Fpkd => OpenFpk(null, bytes),
             FoxFormat.Pftxs => OpenPftxs(null, bytes),
             FoxFormat.G0s => OpenG0s(null, bytes),
-            _ => throw new InvalidDataException("nested blob is not a QAR/FPK/PFTXS/G0S archive"),
+            FoxFormat.Sbp => OpenSbp(null, bytes),
+            FoxFormat.Stp => OpenStp(null, bytes),
+            FoxFormat.Sab => OpenSab(null, bytes),
+            _ => throw new InvalidDataException("nested blob is not a recognised Fox archive"),
         };
     }
 
@@ -168,6 +198,55 @@ internal sealed partial class ArchiveHandle : IDisposable
         return h;
     }
 
+    private static ArchiveHandle OpenSbp(string? path, byte[]? bytes)
+    {
+        var sbp = new SbpFile();
+        if (path is not null) sbp.ReadFrom(path);     // loads all sub-files in memory
+        else { using var ms = new MemoryStream(bytes!, writable: false); sbp.Read(ms); }
+        var h = new ArchiveHandle(Kind.Sbp, path, bytes, null);
+        h.BuildSbpTree(sbp);
+        return h;
+    }
+
+    private static ArchiveHandle OpenStp(string? path, byte[]? bytes)
+    {
+        var stp = new StreamedPackage();
+        if (path is not null) stp.ReadFrom(path);
+        else { using var ms = new MemoryStream(bytes!, writable: false); stp.Read(ms); }
+        var h = new ArchiveHandle(Kind.Stp, path, bytes, null);
+        h.BuildStpTree(stp);
+        return h;
+    }
+
+    private static ArchiveHandle OpenSab(string? path, byte[]? bytes)
+    {
+        var sab = new StreamedAnimation();
+        if (path is not null) sab.ReadFrom(path);
+        else { using var ms = new MemoryStream(bytes!, writable: false); sab.Read(ms); }
+        var h = new ArchiveHandle(Kind.Sab, path, bytes, null);
+        h.BuildSabTree(sab);
+        return h;
+    }
+
+    // fsop entries (the decoded shader blobs) are kept on the tree, so the raw
+    // bytes aren't retained on the handle.
+    private static ArchiveHandle OpenFsop(byte[] bytes)
+    {
+        FsopFile fsop;
+        using (var ms = new MemoryStream(bytes, writable: false)) fsop = FsopFile.Read(ms);
+        var h = new ArchiveHandle(Kind.Fsop, null, null, null);
+        h.BuildFsopTree(fsop);
+        return h;
+    }
+
+    private static ArchiveHandle OpenMtar(byte[] bytes)
+    {
+        var items = MtarBrowse.Read(bytes);    // v1/v2 gani/trk/chnk/exchnk/enchnk
+        var h = new ArchiveHandle(Kind.Mtar, null, null, null);
+        h.BuildMtarTree(items);
+        return h;
+    }
+
     // ── Listing / navigation ─────────────────────────────────────────────────
 
     public DirNode? NavigateDir(string dirPath)
@@ -207,6 +286,8 @@ internal sealed partial class ArchiveHandle : IDisposable
             return node.Pftxs!.Data;     // texture bytes, already in memory
         if (_kind == Kind.GzPftxs)
             return node.GzPftxs!.Data;   // GZ texture bytes, already in memory
+        if (_kind is Kind.Sbp or Kind.Stp or Kind.Sab or Kind.Fsop or Kind.Mtar)
+            return node.Blob!;           // container blob, already in memory
 
         if (_kind == Kind.G0s)           // GZ QAR: read raw blob, then decrypt
         {

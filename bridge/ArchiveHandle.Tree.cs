@@ -4,6 +4,10 @@ using MgsvModBldr.Tools.Fpk.Gz;
 using MgsvModBldr.Tools.Pftxs;
 using MgsvModBldr.Tools.Pftxs.Gz;
 using MgsvModBldr.Tools.G0s;
+using MgsvModBldr.Tools.Sbp;
+using MgsvModBldr.Tools.Stp;
+using MgsvModBldr.Tools.Fsop;
+using MgsvModBldr.Tools.Mtar;
 
 namespace MgsvModBldr.Tools.NativeBridge;
 
@@ -66,6 +70,72 @@ internal sealed partial class ArchiveHandle
         {
             var leaf = AddPath(e.Path, (ulong)e.Data.LongLength, 0);
             leaf.GzPftxs = e;
+        }
+    }
+
+    // .sbp — sub-files tagged by a 4-byte magic (bnk/stp/sab), no names. Name
+    // them "<index>.<tag>"; the stp/sab ones are themselves containers (drilled
+    // into by magic) while bnk is a leaf.
+    private void BuildSbpTree(SbpFile sbp)
+    {
+        for (int i = 0; i < sbp.Entries.Count; i++)
+        {
+            var e = sbp.Entries[i];
+            var tag = string.IsNullOrEmpty(e.Magic) ? "bin" : e.Magic;
+            var leaf = AddPath($"{i}.{tag}", (ulong)e.Data.LongLength, 0);
+            leaf.Blob = e.Data;
+            leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
+        }
+    }
+
+    // .stp — each entry is a hash + a .wem (and, on TPP, a .ls2 lipsync).
+    private void BuildStpTree(StreamedPackage stp)
+    {
+        foreach (var e in stp.Entries)
+        {
+            var stem = e.Name.ToString("x8");
+            var wem = AddPath($"{stem}.wem", (ulong)e.Wem.LongLength, e.Name);
+            wem.Blob = e.Wem;
+            if (e.Ls2.Length > 0)
+            {
+                var ls2 = AddPath($"{stem}.ls2", (ulong)e.Ls2.LongLength, e.Name);
+                ls2.Blob = e.Ls2;
+            }
+        }
+    }
+
+    // .sab — each entry is a 64-bit hash + a combined .lsst lip-sync block.
+    private void BuildSabTree(StreamedAnimation sab)
+    {
+        foreach (var e in sab.Entries)
+        {
+            var leaf = AddPath($"{e.Name:x16}.lsst", (ulong)e.Lsst.LongLength, e.Name);
+            leaf.Blob = e.Lsst;
+        }
+    }
+
+    // .fsop — each shader becomes "<name>_vs.fxc" + "<name>_ps.fxc" (DXBC blobs,
+    // already XOR-decoded). Names can collide across entries, so prefix the index.
+    private void BuildFsopTree(FsopFile fsop)
+    {
+        for (int i = 0; i < fsop.Shaders.Count; i++)
+        {
+            var s = fsop.Shaders[i];
+            var stem = $"{i:0000}_{s.Name}";
+            var vs = AddPath($"{stem}_vs.fxc", (ulong)s.Vs.LongLength, 0);
+            vs.Blob = s.Vs;
+            var ps = AddPath($"{stem}_ps.fxc", (ulong)s.Ps.LongLength, 0);
+            ps.Blob = s.Ps;
+        }
+    }
+
+    // .mtar — the flat gani/trk/chnk/exchnk/enchnk file set MtarBrowse extracts.
+    private void BuildMtarTree(List<MtarItem> items)
+    {
+        foreach (var e in items)
+        {
+            var leaf = AddPath(e.Name, (ulong)e.Data.LongLength, 0);
+            leaf.Blob = e.Data;
         }
     }
 

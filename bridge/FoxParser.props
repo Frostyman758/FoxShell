@@ -21,13 +21,21 @@
        ============================================================================ -->
 
   <PropertyGroup>
-    <!-- Sibling-repo layout: C:\rsearch\Fox_shellext  and  C:\rsearch\Fox_parser -->
-    <FoxParserRoot>$(MSBuildThisFileDirectory)..\..\Fox_parser</FoxParserRoot>
+    <!-- Fox_parser is a sibling of this repo's ROOT (..\..\Fox_parser from
+         bridge\) in a normal clone. When this repo is itself nested one level
+         deeper (e.g. cloned as Fox_shellext\FoxShell), the sibling sits one
+         further up. Pick whichever layout actually exists so the build works
+         from either location. Override -p:FoxParserRoot=... to point elsewhere. -->
+    <FoxParserRoot Condition="'$(FoxParserRoot)'=='' and Exists('$(MSBuildThisFileDirectory)..\..\Fox_parser')">$(MSBuildThisFileDirectory)..\..\Fox_parser</FoxParserRoot>
+    <FoxParserRoot Condition="'$(FoxParserRoot)'=='' and Exists('$(MSBuildThisFileDirectory)..\..\..\Fox_parser')">$(MSBuildThisFileDirectory)..\..\..\Fox_parser</FoxParserRoot>
+
     <!-- MgsvModBldr.Core lives in the GUI repo (csgui). The GZ (.g0s) hashing
          needs exactly ONE pure file from it — CityHash64.cs — which has no Core
          dependencies of its own (just System/System.Text), so it stays
-         AOT-clean. This is the only file we pull from outside Fox_parser. -->
-    <CoreRoot>$(MSBuildThisFileDirectory)..\..\mgsv_modbldr\csgui\MgsvModBldr.Core</CoreRoot>
+         AOT-clean. This is the only file we pull from outside Fox_parser. Same
+         two-vs-three-levels-up resolution as FoxParserRoot. -->
+    <CoreRoot Condition="'$(CoreRoot)'=='' and Exists('$(MSBuildThisFileDirectory)..\..\mgsv_modbldr')">$(MSBuildThisFileDirectory)..\..\mgsv_modbldr\csgui\MgsvModBldr.Core</CoreRoot>
+    <CoreRoot Condition="'$(CoreRoot)'=='' and Exists('$(MSBuildThisFileDirectory)..\..\..\mgsv_modbldr')">$(MSBuildThisFileDirectory)..\..\..\mgsv_modbldr\csgui\MgsvModBldr.Core</CoreRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -68,6 +76,34 @@
     <!-- Pftxs\Gz — GZ (Ground Zeroes) pftxs reader, SEPARATE from the TPP
          PftxsFile (GZ uses a different PFTX/PSUB layout). Read-only browse. -->
     <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Pftxs\Gz\GzPftxsFile.cs" Link="FoxParser\Pftxs\Gz\GzPftxsFile.cs" />
+
+    <!-- Sound containers (rel2): the readers only, EXCLUDING their JSON packers.
+         Sbp (Sound Bank Package) holds bnk/stp/sab; Stp (Streamed Package) holds
+         wem/ls2; StpFile.cs also defines StreamedAnimation (.sab) holding lsst.
+         All AOT-clean (BinaryPrimitives, no Core/JSON on the read path). -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Sbp\SbpFile.cs" Link="FoxParser\Sbp\SbpFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Stp\StpFile.cs" Link="FoxParser\Stp\StpFile.cs" />
+
+    <!-- Fsop — read-only in-memory shader-pack reader (FsopFile.cs), SEPARATE
+         from FsopPacker (JSON + Shift-JIS code pages + disk). FSOP has no magic;
+         it is content-detected by its exact structure (FsopFile.LooksLikeFsop). -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fsop\FsopFile.cs" Link="FoxParser\Fsop\FsopFile.cs" />
+
+    <!-- Mtar — Motion Archive (.mtar) v1/v2 readers + the in-memory browse façade
+         (MtarBrowse.cs). EXCLUDES MtarConverter.cs (XmlSerializer). The reader
+         classes carry [Xml*] attributes but we never instantiate XmlSerializer,
+         so they stay AOT-clean. Names resolve via NameResolver (CityHash64,
+         already pulled in above; hash hex fallback without mtar_dictionary.txt). -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\MtarBrowse.cs"          Link="FoxParser\Mtar\MtarBrowse.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\MtarExtensions.cs"      Link="FoxParser\Mtar\MtarExtensions.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Common\ArchiveFile.cs"  Link="FoxParser\Mtar\ArchiveFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarFile.cs"       Link="FoxParser\Mtar\MtarFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarFile2.cs"      Link="FoxParser\Mtar\MtarFile2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarGaniFile.cs"   Link="FoxParser\Mtar\MtarGaniFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarGaniFile2.cs"  Link="FoxParser\Mtar\MtarGaniFile2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarTrack2.cs"     Link="FoxParser\Mtar\MtarTrack2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarChunk2.cs"     Link="FoxParser\Mtar\MtarChunk2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Utility\NameResolver.cs" Link="FoxParser\Mtar\NameResolver.cs" />
 
     <!-- G0s — GZ QAR (.g0s) reader subset: footer index (G0sFile.cs), the
          symmetric XOR crypto (G0sCrypto.cs) and the GZ path hashing +

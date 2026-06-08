@@ -23,6 +23,11 @@ internal enum FoxFormat
     Fpkd,  // Fox Package Data  — ".fpkd"                magic "foxfpkdwin"
     Pftxs, // Packed Fox Texture— ".pftxs"               magic "PFTX" (+ "TEXL")
     G0s,   // GZ QAR archive    — ".g0s"                 footer 0x71610000 (no header)
+    Sbp,   // Sound Bank Package— ".sbp"                 magic "SBPL"
+    Stp,   // Streamed Package  — ".stp"                 magic "STPL"
+    Sab,   // Streamed Animation— ".sab"                 magic "SAL3"
+    Fsop,  // Fox Shader Pack   — ".fsop"                NO magic (structural detect)
+    Mtar,  // Motion Archive    — ".mtar"                NO magic (extension detect)
 }
 
 internal static class FoxFormats
@@ -35,6 +40,9 @@ internal static class FoxFormats
     private static ReadOnlySpan<byte> Sqar => "SQAR"u8;          // QAR
     private static ReadOnlySpan<byte> FoxFpk => "foxfpk"u8;      // FPK family prefix
     private static ReadOnlySpan<byte> Pftx => "PFTX"u8;          // PFTXS
+    private static ReadOnlySpan<byte> Sbpl => "SBPL"u8;          // Sound Bank Package
+    private static ReadOnlySpan<byte> Stpl => "STPL"u8;          // Streamed Package
+    private static ReadOnlySpan<byte> Sal3 => "SAL3"u8;          // Streamed Animation (.sab)
 
     // Identify a file from the first bytes of its content.
     public static FoxFormat Detect(ReadOnlySpan<byte> head)
@@ -48,6 +56,10 @@ internal static class FoxFormats
 
         if (head.Length >= 4 && head[..4].SequenceEqual(Pftx))
             return FoxFormat.Pftxs;
+
+        if (head.Length >= 4 && head[..4].SequenceEqual(Sbpl)) return FoxFormat.Sbp;
+        if (head.Length >= 4 && head[..4].SequenceEqual(Stpl)) return FoxFormat.Stp;
+        if (head.Length >= 4 && head[..4].SequenceEqual(Sal3)) return FoxFormat.Sab;
 
         return FoxFormat.Unknown;
     }
@@ -74,6 +86,12 @@ internal static class FoxFormats
             && footerSize == MgsvModBldr.Tools.G0s.G0sArchive.FooterSize;
     }
 
+    // ── .fsop (Fox Shader Pack) — no magic, content-detected by structure ────
+    // FSOP is a headerless stream of [nameLen|name|vsSize|vs|psSize|ps] entries.
+    // We accept it only if it parses cleanly to EOF, which random data won't —
+    // so this is a genuine content check, not an extension guess.
+    public static bool IsFsop(ReadOnlySpan<byte> data) => MgsvModBldr.Tools.Fsop.FsopFile.LooksLikeFsop(data);
+
     // ── Extension metadata (from the MGSV Modding Wiki "File Formats" page) ───
 
     // Top-level extensions worth associating with the shell extension. These are
@@ -85,7 +103,7 @@ internal static class FoxFormats
     // .dat is overloaded by countless non-Fox apps, but association is safe here
     // because mounting is gated on Detect() == a real Fox magic at runtime.
     public static readonly string[] TopLevelExtensions =
-        { ".dat", ".qar", ".g0s", ".fpk", ".fpkd", ".pftxs" };
+        { ".dat", ".qar", ".g0s", ".fpk", ".fpkd", ".pftxs", ".sbp", ".stp", ".sab", ".fsop", ".mtar" };
 
     // Nested entries we offer to drill into. The listing flags these by name as
     // a cheap hint; the actual open re-confirms by magic (OpenNestedBytes), so a
@@ -93,7 +111,7 @@ internal static class FoxFormats
     // Per the wiki, archives nested inside a QAR/FPK are fpk/fpkd/pftxs.
     private static readonly HashSet<string> NestedContainerExts =
         new(StringComparer.OrdinalIgnoreCase)
-        { ".fpk", ".fpkd", ".pftxs", ".dat", ".qar", ".g0s" };
+        { ".fpk", ".fpkd", ".pftxs", ".dat", ".qar", ".g0s", ".sbp", ".stp", ".sab", ".fsop", ".mtar" };
 
     public static bool IsNestedContainer(string name)
     {

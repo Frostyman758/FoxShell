@@ -25,8 +25,9 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <cwchar>
 
-enum class FoxFormat { Unknown = 0, Qar, Fpk, Fpkd, Pftxs, G0s };
+enum class FoxFormat { Unknown = 0, Qar, Fpk, Fpkd, Pftxs, G0s, Sbp, Stp, Sab, Fsop, Mtar };
 
 /* Number of leading bytes Fox*Sniff needs (longest magic = 10, rounded up). */
 static const size_t FOX_SNIFF_BYTES = 16;
@@ -50,6 +51,13 @@ inline FoxFormat FoxSniffBytes(const uint8_t* b, size_t n)
 
     if (n >= 4 && b[0] == 0x50 && b[1] == 0x46 && b[2] == 0x54 && b[3] == 0x58)
         return FoxFormat::Pftxs;                                 /* "PFTX" */
+
+    if (n >= 4 && b[0] == 0x53 && b[1] == 0x42 && b[2] == 0x50 && b[3] == 0x4C)
+        return FoxFormat::Sbp;                                   /* "SBPL" */
+    if (n >= 4 && b[0] == 0x53 && b[1] == 0x54 && b[2] == 0x50 && b[3] == 0x4C)
+        return FoxFormat::Stp;                                   /* "STPL" */
+    if (n >= 4 && b[0] == 0x53 && b[1] == 0x41 && b[2] == 0x4C && b[3] == 0x33)
+        return FoxFormat::Sab;                                   /* "SAL3" */
 
     return FoxFormat::Unknown;
 }
@@ -95,6 +103,16 @@ inline FoxFormat FoxSniffFile(const wchar_t* path)
                     fmt = FoxFormat::G0s;
             }
         }
+    }
+
+    // .fsop and .mtar have no magic at all; trust the (fox-specific,
+    // non-overloaded) extension for the mount gate. The bridge then validates
+    // the content, so a mislabelled file simply opens empty.
+    if (fmt == FoxFormat::Unknown)
+    {
+        size_t n = wcslen(path);
+        if (n >= 5 && _wcsicmp(path + n - 5, L".fsop") == 0)      fmt = FoxFormat::Fsop;
+        else if (n >= 5 && _wcsicmp(path + n - 5, L".mtar") == 0) fmt = FoxFormat::Mtar;
     }
 
     CloseHandle(h);

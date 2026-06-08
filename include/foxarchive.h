@@ -56,6 +56,11 @@ int32_t foxarc_abi_version(void);
  * QAR entries fall back to hash-named paths (still browsable). NULL clears it. */
 void foxarc_set_dict_dir(const wchar_t* dir);
 
+/* Force a full, compacting GC and return freed memory to the OS. The shell
+ * calls this after the last browser of an archive closes, so large browse-time
+ * allocations don't linger in the managed heap until the host process exits. */
+void foxarc_trim(void);
+
 /* Open a top-level archive from a Windows filesystem path.
  * On success *out receives a handle; close it with foxarc_close. */
 int32_t foxarc_open(const wchar_t* path, FoxArchive** out);

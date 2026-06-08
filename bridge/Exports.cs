@@ -1,3 +1,4 @@
+using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -17,6 +18,23 @@ internal static unsafe class Exports
 
     [UnmanagedCallersOnly(EntryPoint = "foxarc_abi_version")]
     public static int AbiVersion() => 1;
+
+    // Force a full, compacting collection and hand memory back to the OS. The
+    // shell calls this after the last folder for an archive is closed, so the
+    // (potentially large) index/blob memory is released promptly instead of
+    // lingering in the GC heap until explorer.exe restarts.
+    [UnmanagedCallersOnly(EntryPoint = "foxarc_trim")]
+    public static void Trim()
+    {
+        try
+        {
+            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        }
+        catch { }
+    }
 
     // Tell the bridge where its sidecar files (qar_dictionary.txt) live. Call
     // once at load with foxarchive.dll's own directory. NULL clears it.
@@ -58,7 +76,7 @@ internal static unsafe class Exports
             if (node is null) return E_NOTFOUND;
             if (!node.IsArchive) return E_NOTARCH;
             var bytes = pa.ReadFile(node);
-            var h = ArchiveHandle.OpenNestedBytes(bytes);
+            var h = ArchiveHandle.OpenNestedBytes(bytes, node.Name);
             *outHandle = GCHandle.ToIntPtr(GCHandle.Alloc(h));
             return OK;
         }

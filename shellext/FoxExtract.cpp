@@ -3,8 +3,47 @@
 #include <shlobj.h>
 #include <shellapi.h>
 #include <string>
+#include <vector>
 #include "FoxShellFolder.h"
 #include "bridge.h"
+
+// Directory foxshellext.dll lives in (its sidecars — vgmstream-cli, dicts — sit
+// next to it). Trailing backslash included.
+static std::wstring SelfDir()
+{
+    wchar_t buf[MAX_PATH] = {};
+    GetModuleFileNameW(Bridge::Get().SelfModule(), buf, MAX_PATH);
+    std::wstring s = buf;
+    auto slash = s.find_last_of(L'\\');
+    return slash == std::wstring::npos ? L"" : s.substr(0, slash + 1);
+}
+
+// Decode a Wwise .wem to a standard .wav using the bundled vgmstream-cli, so it
+// plays in any media player. Returns false (caller opens the raw .wem) if
+// vgmstream isn't present or the decode fails.
+static bool ConvertWemToWav(const std::wstring& wem, const std::wstring& wav)
+{
+    std::wstring dir = SelfDir() + L"vgmstream\\";   // bundled in its own subdir
+    std::wstring exe = dir + L"vgmstream-cli.exe";
+    if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+
+    std::wstring cmd = L"\"" + exe + L"\" -o \"" + wav + L"\" \"" + wem + L"\"";
+    std::vector<wchar_t> mutable_cmd(cmd.begin(), cmd.end());
+    mutable_cmd.push_back(0);
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    // CWD = the dll dir so vgmstream-cli finds its codec DLLs.
+    if (!CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, dir.c_str(), &si, &pi))
+        return false;
+    WaitForSingleObject(pi.hProcess, 60000);   // generous cap for long tracks
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code == 0 && GetFileAttributesW(wav.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
 
 // Extracting a file to disk so its associated app can open it. Browsing extracts
 // nothing; this path runs ONLY when the user explicitly opens a leaf file.
@@ -69,7 +108,18 @@ HRESULT FoxShellFolder::OpenChildFile(const wchar_t* leafName, HWND hwnd)
     br.free_blob(data);
     if (!wrote) return E_FAIL;
 
-    // Launch with the file's associated application (e.g. .lua -> the editor).
-    ShellExecuteW(hwnd, nullptr, full.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    // A .wem (Wwise) is unplayable as-is; transparently decode it to a .wav with
+    // the bundled vgmstream so opening it just plays. Fall back to the raw .wem
+    // if vgmstream isn't available or fails.
+    std::wstring toOpen = full;
+    if (full.size() > 4 && _wcsicmp(full.c_str() + full.size() - 4, L".wem") == 0)
+    {
+        std::wstring wav = full.substr(0, full.size() - 4) + L".wav";
+        if (ConvertWemToWav(full, wav)) toOpen = wav;
+    }
+
+    // Launch with the file's associated application (e.g. .lua -> the editor,
+    // .wav -> VLC/Media Player).
+    ShellExecuteW(hwnd, nullptr, toOpen.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return S_OK;
 }

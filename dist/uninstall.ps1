@@ -1,7 +1,7 @@
 # Reverse install.ps1 (per-user).
 [CmdletBinding()]
 param(
-    [string[]]$Ext = @('.dat', '.qar', '.fpk', '.fpkd', '.pftxs', '.g0s'),
+    [string[]]$Ext = @('.dat', '.qar', '.fpk', '.fpkd', '.pftxs', '.g0s', '.sbp', '.stp', '.sab', '.fsop', '.mtar'),
     [string]$InstallDir = "$env:USERPROFILE\foxshell"
 )
 $ErrorActionPreference = 'SilentlyContinue'

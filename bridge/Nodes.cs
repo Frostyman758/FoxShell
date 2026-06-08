@@ -31,4 +31,10 @@ internal sealed class FileNode
     public PftxsEntry?   Pftxs;
     public GzPftxsEntry? GzPftxs;
     public G0sEntry?     G0s;
+
+    // Resolved-in-memory bytes for formats whose entries are plain blobs
+    // (sbp/stp/sab — and any future flat container). ReadFile returns this
+    // directly; a blob that is itself an archive (e.g. an .stp inside an .sbp)
+    // is re-detected by magic when drilled into.
+    public byte[]?       Blob;
 }

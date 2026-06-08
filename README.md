@@ -77,12 +77,13 @@ dotnet publish bridge/MgsvModBldr.Tools.NativeBridge.csproj -c Release
 
 ## Status
 
-**rel1.** Browsing, per-format Type names, `.ftex` thumbnails, drag-out / copy /
-paste extraction, and full Ground Zeroes (`.g0s`) support are all working.
+**rel2.** Browsing, per-format Type names, `.ftex` thumbnails, drag-out / copy /
+paste extraction, full Ground Zeroes (`.g0s`) support, and the sound / shader /
+motion containers are all working.
 
 ## Supported inputs
 
-TPP **and** Ground Zeroes:
+TPP **and** Ground Zeroes. Top-level archives:
 
 - `.dat` / `.qar` — QAR archives (TPP)
 - `.g0s` — QAR archives (Ground Zeroes; footer-detected, so the WMV `data_00.g0s`
@@ -90,13 +91,20 @@ TPP **and** Ground Zeroes:
 - `.fpk` / `.fpkd` — Fox Packages (TPP `win` and GZ `ste` builds; GZ entry names
   resolved via `fpk_dictionary.txt`)
 - `.pftxs` — Packed Fox Textures (TPP and the different GZ `PFTX`/`PSUB` layout)
+- `.sbp` — Sound Bank Package → `bnk` + `stp`/`sab`
+- `.stp` — Streamed Package → `wem` (+ TPP `ls2`)
+- `.sab` — Streamed Animation → `lsst`
+- `.fsop` — Fox Shader Object Pack → `*_vs.fxc` / `*_ps.fxc` (XOR-decoded DXBC)
+- `.mtar` — Motion Archive (v1 & v2) → `gani` + `trk`/`chnk`/`exchnk`/`enchnk`
 
-…including these archives **nested inside** a `.dat`/`.g0s` (e.g. an `.fpk`,
-`.fpkd`, or `.pftxs` inside a Ground Zeroes `.g0s`). Detection is by content
-(magic / footer), so a generic non-Fox `.dat` is left alone.
+…including any of these **nested inside** another (e.g. an `.fpk` inside a
+`.g0s`, an `.stp` inside an `.sbp`, an `.mtar` inside an `.fpk`). Detection is by
+content where a magic/footer exists (so a generic non-Fox `.dat` is left alone);
+the headerless `.fsop` is confirmed by its exact structure and `.mtar` by its
+(fox-specific) extension.
 
-The GZ readers live in their own files (`Fpk/Gz/`, `Pftxs/Gz/`) so the proven,
-byte-exact TPP readers are never touched.
+The GZ readers (`Fpk/Gz/`, `Pftxs/Gz/`) and the rel2 readers each live in their
+own files, so the proven, byte-exact TPP readers are never touched.
 
 ## Notes / limitations
 
