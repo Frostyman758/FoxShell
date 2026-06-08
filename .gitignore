@@ -1,0 +1,28 @@
+# .NET / NativeAOT
+bin/
+obj/
+artifacts/
+*.user
+
+# C++ / CMake / MSVC
+build/
+out/
+[Dd]ebug/
+[Rr]elease/
+x64/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+
+# Native bridge build outputs that get copied into shellext at pack time
+include/foxarchive.lib
+
+# VS / editor
+.vs/
+*.suo
+*.vcxproj.user

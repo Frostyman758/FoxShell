@@ -1,0 +1,113 @@
+<Project>
+  <!-- ============================================================================
+       SINGLE SOURCE OF FOX_PARSER COUPLING
+       ============================================================================
+       This is the ONLY file in the whole Fox_shellext repo that knows
+         (a) where Fox_parser lives on disk, and
+         (b) which of its source files the native bridge compiles in.
+
+       The C++ shell extension (shellext/) never references Fox_parser — it
+       only ever sees the flat C ABI from include/foxarchive.h. So if
+       Fox_parser moves, gets renamed, or reorganises a file, THIS is the
+       one file you edit. Nothing downstream changes.
+
+       We deliberately <Compile Include> individual .cs files rather than
+       <ProjectReference> the Fox_parser .csproj's, because those projects
+       back-reference MgsvModBldr.Core (the GUI repo) via QarPacker /
+       FpkPacker / ManagedFpkArchiver. We want NONE of that in an AOT image:
+       only the pure binary-parsing + crypto path. Cherry-picking by file is
+       how we keep the bridge's dependency graph minimal and Core-free.
+       (See the AOT audit: the excluded files are the JSON/Core ones.)
+       ============================================================================ -->
+
+  <PropertyGroup>
+    <!-- Sibling-repo layout: C:\rsearch\Fox_shellext  and  C:\rsearch\Fox_parser -->
+    <FoxParserRoot>$(MSBuildThisFileDirectory)..\..\Fox_parser</FoxParserRoot>
+    <!-- MgsvModBldr.Core lives in the GUI repo (csgui). The GZ (.g0s) hashing
+         needs exactly ONE pure file from it — CityHash64.cs — which has no Core
+         dependencies of its own (just System/System.Text), so it stays
+         AOT-clean. This is the only file we pull from outside Fox_parser. -->
+    <CoreRoot>$(MSBuildThisFileDirectory)..\..\mgsv_modbldr\csgui\MgsvModBldr.Core</CoreRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- GameHashing — fully AOT-clean, zero external deps. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.GameHashing\GameHash.cs"     Link="FoxParser\GameHashing\GameHash.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.GameHashing\GameCityHash.cs" Link="FoxParser\GameHashing\GameCityHash.cs" />
+
+    <!-- Qar — AOT-clean subset. EXCLUDES QarPacker.cs (JsonSerializer + Core)
+         and QarManifest.cs (only used by QarPacker). The bridge reads entries
+         and pulls single blobs; it never writes the .json manifest. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\QarConstants.cs"   Link="FoxParser\Qar\QarConstants.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\QarDictionary.cs"  Link="FoxParser\Qar\QarDictionary.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\QarEntry.cs"       Link="FoxParser\Qar\QarEntry.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\QarFile.cs"        Link="FoxParser\Qar\QarFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\Decrypt1Stream.cs" Link="FoxParser\Qar\Decrypt1Stream.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\Decrypt2Stream.cs" Link="FoxParser\Qar\Decrypt2Stream.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Qar\Md5Decode.cs"      Link="FoxParser\Qar\Md5Decode.cs" />
+
+    <!-- Fpk — AOT-clean subset. EXCLUDES FpkPacker.cs (JsonSerializer + Core)
+         and ManagedFpkArchiver.cs (Core ModBuilder integration). -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\FpkFile.cs"   Link="FoxParser\Fpk\FpkFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\FpkEntry.cs"  Link="FoxParser\Fpk\FpkEntry.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\FpkString.cs" Link="FoxParser\Fpk\FpkString.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\FpkCrypto.cs" Link="FoxParser\Fpk\FpkCrypto.cs" />
+
+    <!-- Fpk\Gz — GZ (Ground Zeroes) fpk reader, kept fully SEPARATE from the TPP
+         FpkFile so the byte-exact TPP path is never disturbed. Resolves GZ entry
+         paths via MD5 (fpk_dictionary.txt). Read-only browse/extract. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\Gz\GzFpkFile.cs"     Link="FoxParser\Fpk\Gz\GzFpkFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\Gz\GzFpkEntry.cs"    Link="FoxParser\Fpk\Gz\GzFpkEntry.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\Gz\GzFpkString.cs"   Link="FoxParser\Fpk\Gz\GzFpkString.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fpk\Gz\FpkDictionary.cs" Link="FoxParser\Fpk\Gz\FpkDictionary.cs" />
+
+    <!-- Pftxs — texture-package reader only (PftxsFile.cs). EXCLUDES
+         PftxsPacker.cs (JsonSerializer). Lets us browse .pftxs as folders. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Pftxs\PftxsFile.cs" Link="FoxParser\Pftxs\PftxsFile.cs" />
+
+    <!-- Pftxs\Gz — GZ (Ground Zeroes) pftxs reader, SEPARATE from the TPP
+         PftxsFile (GZ uses a different PFTX/PSUB layout). Read-only browse. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Pftxs\Gz\GzPftxsFile.cs" Link="FoxParser\Pftxs\Gz\GzPftxsFile.cs" />
+
+    <!-- G0s — GZ QAR (.g0s) reader subset: footer index (G0sFile.cs), the
+         symmetric XOR crypto (G0sCrypto.cs) and the GZ path hashing +
+         dictionary resolve (G0sHash.cs). EXCLUDES G0sPacker.cs (System.Text.Json
+         + repack). G0sHash needs CityHash64 from Core (the single Core file we
+         pull, declared AOT-clean above). Lets us browse .g0s as folders. -->
+    <Compile Include="$(CoreRoot)\CityHash64.cs"                          Link="FoxParser\Core\CityHash64.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.G0s\G0sFile.cs"   Link="FoxParser\G0s\G0sFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.G0s\G0sCrypto.cs" Link="FoxParser\G0s\G0sCrypto.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.G0s\G0sHash.cs"   Link="FoxParser\G0s\G0sHash.cs" />
+
+    <!-- Ftex — texture decode (for Explorer thumbnails). The .ftex header +
+         mip directory and the .ftexs sidecars that hold the pixel data, plus
+         the DDS structs we wrap a single mip in. EXCLUDES FtexPacker (file IO)
+         and FtexDdsConverter (needs all mips); thumbnail builds its own 1-mip
+         DDS in bridge/FtexThumbnail.cs. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexFile.cs"            Link="FoxParser\Ftex\FtexFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexFileMipMapInfo.cs"  Link="FoxParser\Ftex\FtexFileMipMapInfo.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexTextureType.cs"     Link="FoxParser\Ftex\FtexTextureType.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexUnknownFlags.cs"    Link="FoxParser\Ftex\FtexUnknownFlags.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexsFile.cs"           Link="FoxParser\Ftex\FtexsFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexsFileMipMap.cs"     Link="FoxParser\Ftex\FtexsFileMipMap.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexsFileChunk.cs"      Link="FoxParser\Ftex\FtexsFileChunk.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexsFileChunkIndex.cs" Link="FoxParser\Ftex\FtexsFileChunkIndex.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsFile.cs"             Link="FoxParser\Ftex\DdsFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsFileHeader.cs"       Link="FoxParser\Ftex\DdsFileHeader.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsFileHeaderDx10.cs"   Link="FoxParser\Ftex\DdsFileHeaderDx10.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsFileHeaderFlags.cs"  Link="FoxParser\Ftex\DdsFileHeaderFlags.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsPixelFormat.cs"      Link="FoxParser\Ftex\DdsPixelFormat.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsPixelFormatFlag.cs"  Link="FoxParser\Ftex\DdsPixelFormatFlag.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsSurfaceFlags.cs"     Link="FoxParser\Ftex\DdsSurfaceFlags.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DxgiFormat.cs"          Link="FoxParser\Ftex\DxgiFormat.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\D3D10ResourceDimension.cs" Link="FoxParser\Ftex\D3D10ResourceDimension.cs" />
+    <!-- NOTE: Ftex\ExtensionMethods.cs is deliberately EXCLUDED — it reads
+         structs via Marshal.SizeOf/PtrToStructure which NativeAOT can't do.
+         bridge/FtexAotExtensions.cs provides an AOT-safe drop-in replacement
+         (same namespace + class) instead. -->
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\ZipUtility.cs"          Link="FoxParser\Ftex\ZipUtility.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\AssertionFailedException.cs" Link="FoxParser\Ftex\AssertionFailedException.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\FtexToolException.cs"      Link="FoxParser\Ftex\FtexToolException.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Ftex\DdsCubemap.cs"            Link="FoxParser\Ftex\DdsCubemap.cs" />
+  </ItemGroup>
+</Project>

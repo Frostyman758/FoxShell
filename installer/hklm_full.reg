@@ -1,0 +1,48 @@
+Windows Registry Editor Version 5.00
+
+[-HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}]
+
+[-HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}]
+@="MGSV Fox Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}\InprocServer32]
+@="C:\\Users\\Blue\\AppData\\Local\\modbldr-shellext\\foxshellext.dll"
+"ThreadingModel"="Apartment"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}\ShellFolder]
+"Attributes"=dword:200001a0
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}\Implemented Categories\{00021490-0000-0000-C000-000000000046}]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{5AA92D71-4013-463E-BFDE-673DB7C70FCF}\ProgID]
+@="Fox.Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive]
+@="MGSV Fox Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive\CLSID]
+@="{5AA92D71-4013-463E-BFDE-673DB7C70FCF}"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive\ShellFolder]
+"Attributes"=dword:200001a0
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive\Shell\Open]
+"MultiSelectModel"="Document"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Fox.Archive\Shell\Open\Command]
+@="C:\\WINDOWS\\Explorer.exe /idlist,%I,%L"
+"DelegateExecute"="{11dbb47c-a525-400b-9e80-a54615a090c0}"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.fpk]
+@="Fox.Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.fpkd]
+@="Fox.Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.dat]
+@="Fox.Archive"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\.qar]
+@="Fox.Archive"

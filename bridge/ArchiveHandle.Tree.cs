@@ -1,0 +1,131 @@
+using MgsvModBldr.Tools.Qar;
+using MgsvModBldr.Tools.Fpk;
+using MgsvModBldr.Tools.Fpk.Gz;
+using MgsvModBldr.Tools.Pftxs;
+using MgsvModBldr.Tools.Pftxs.Gz;
+using MgsvModBldr.Tools.G0s;
+
+namespace MgsvModBldr.Tools.NativeBridge;
+
+// Tree construction for ArchiveHandle: turn each archive's flat entry list into
+// the DirNode/FileNode hierarchy the shell walks. One BuildXxxTree per format.
+internal sealed partial class ArchiveHandle
+{
+    private void BuildQarTree()
+    {
+        var dict = QarNameDictionary.Get();
+        foreach (var e in _qar!.Entries)
+        {
+            string path;
+            if (dict is not null)
+            {
+                path = dict.Resolve(e.Header.PathHash, out bool found);
+                if (!found) path = $"_unresolved/{e.Header.PathHash:x16}";
+            }
+            else path = $"_unresolved/{e.Header.PathHash:x16}";
+
+            e.Header.FilePath = path;
+            // UncompressedSize includes the encryption data-header for encrypted
+            // entries; subtract it so the listed size matches extracted bytes.
+            ulong dh = (ulong)QarConstants.GetDataHeaderSize(e.DataHeader.EncryptionMagic);
+            ulong shownSize = e.Header.UncompressedSize > dh
+                ? e.Header.UncompressedSize - dh
+                : e.Header.UncompressedSize;
+            var leaf = AddPath(path, shownSize, e.Header.PathHash);
+            leaf.Qar = e;
+            leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
+        }
+    }
+
+    private void BuildFpkTree(FpkFile fpk)
+    {
+        foreach (var e in fpk.Entries)
+        {
+            var path = e.FilePath.Data;
+            var leaf = AddPath(path, (ulong)e.Data.LongLength, 0);
+            leaf.Fpk = e;
+            leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
+        }
+    }
+
+    private void BuildGzFpkTree(GzFpkFile fpk)
+    {
+        // Entry paths are MD5-resolved (real path from fpk_dictionary, else
+        // <md5hex><ext>); see GzFpkString. Data is plaintext, already in memory.
+        foreach (var e in fpk.Entries)
+        {
+            var leaf = AddPath(e.FilePath, (ulong)e.Data.LongLength, 0);
+            leaf.GzFpk = e;
+            leaf.IsArchive = FoxFormats.IsGzNestedContainer(leaf.Name);
+        }
+    }
+
+    private void BuildGzPftxsTree(GzPftxsFile pftxs)
+    {
+        foreach (var e in pftxs.Files)   // flat .ftex + .ftexs entries
+        {
+            var leaf = AddPath(e.Path, (ulong)e.Data.LongLength, 0);
+            leaf.GzPftxs = e;
+        }
+    }
+
+    private void BuildPftxsTree(PftxsFile pftxs)
+    {
+        var dict = QarNameDictionary.Get();
+        foreach (var g in pftxs.Groups)
+        foreach (var e in g.Entries)
+        {
+            string path;
+            if (dict is not null)
+            {
+                path = dict.Resolve(e.Hash, out bool found);
+                if (!found) path = $"_unresolved/{e.Hash:x16}.ftex";
+            }
+            else path = $"_unresolved/{e.Hash:x16}.ftex";
+
+            var leaf = AddPath(path, (ulong)e.Data.LongLength, e.Hash);
+            leaf.Pftxs = e;
+            leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
+        }
+    }
+
+    private void BuildG0sTree()
+    {
+        // G0sHash.TryResolve always yields a path: the dictionary stem (if found)
+        // or the 48-bit hash in hex, plus the GZ typeId's extension. So even
+        // without gzs_dictionary.txt, entries browse with correct extensions.
+        foreach (var e in _g0s!.Entries)
+        {
+            G0sHash.TryResolve(e.Hash, out var path);
+            if (string.IsNullOrEmpty(path)) path = $"_unresolved/{e.Hash:x16}";
+            // Size is the raw on-disk blob (includes the 8-byte inner header for
+            // inner-encrypted entries); good enough for the listing.
+            var leaf = AddPath(path, e.Size, e.Hash);
+            leaf.G0s = e;
+            // GZ-specific: fpk/fpkd browse, but GZ .pftxs can't be parsed by our
+            // reader so it stays a plain (extractable) file.
+            leaf.IsArchive = FoxFormats.IsGzNestedContainer(leaf.Name);
+        }
+    }
+
+    // Insert a file at its interior path, creating intermediate folders.
+    private FileNode AddPath(string rawPath, ulong size, ulong hash)
+    {
+        var norm = rawPath.Replace('\\', '/').TrimStart('/');
+        var parts = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var dir = Root;
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            if (!dir.Dirs.TryGetValue(parts[i], out var child))
+            {
+                child = new DirNode();
+                dir.Dirs[parts[i]] = child;
+            }
+            dir = child;
+        }
+        var leafName = parts.Length > 0 ? parts[^1] : norm;
+        var node = new FileNode { Name = leafName, Size = size, Hash = hash };
+        dir.Files.Add(node);
+        return node;
+    }
+}

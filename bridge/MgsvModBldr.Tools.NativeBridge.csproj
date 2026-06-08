@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       foxarchive.dll — NativeAOT bridge.
+
+       Compiles the AOT-clean subset of Fox_parser (QAR/FPK/GameHashing) into a
+       self-contained native DLL that exports a flat C ABI (see Exports.cs and
+       include/foxarchive.h). The C++ shell extension links against this; no CLR
+       is ever loaded into explorer.exe.
+
+       All Fox_parser source coupling is isolated in FoxParser.props.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Fox_parser sources are authored under <Nullable>disable</Nullable> but
+         use ? annotations. 'annotations' honours the annotations without
+         emitting CS8632 or nullable-flow warnings. -->
+    <Nullable>annotations</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- NativeAOT: emit a native shared library (foxarchive.dll), not an exe. -->
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <AssemblyName>foxarchive</AssemblyName>
+    <RootNamespace>MgsvModBldr.Tools.NativeBridge</RootNamespace>
+    <IsPackable>false</IsPackable>
+
+    <!-- Trim/AOT hygiene: fail the publish loudly if anything drags in
+         reflection or trim-unsafe code paths instead of silently degrading. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <IlcGenerateCompleteTypeMetadata>false</IlcGenerateCompleteTypeMetadata>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- The one and only Fox_parser coupling point. -->
+  <Import Project="FoxParser.props" />
+
+</Project>
