@@ -37,4 +37,20 @@ internal sealed class FileNode
     // directly; a blob that is itself an archive (e.g. an .stp inside an .sbp)
     // is re-detected by magic when drilled into.
     public byte[]?       Blob;
+
+    // LAZY entry: read on demand from the archive's source (file or nested
+    // bytes) instead of being materialised at open time. Big archives then cost
+    // only their index, and a file is decoded only when actually touched.
+    public LazyBlob?     Lazy;
+}
+
+// A region of the owning archive that holds one file's bytes, decoded on read.
+internal sealed class LazyBlob
+{
+    public long   Offset;
+    public int    Length;
+    public byte   Decode;     // 0 = raw, 1 = fpk crypto (Key = entry path), 2 = xor 0x9C
+    public string Key = "";
+
+    public const byte Raw = 0, Fpk = 1, Xor9C = 2;
 }

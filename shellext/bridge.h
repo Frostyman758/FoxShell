@@ -40,6 +40,7 @@ public:
     int32_t (*ftex_thumb_path)(const wchar_t*, uint8_t**, int64_t*) = nullptr;
     void    (*free_blob)(uint8_t*) = nullptr;
     void    (*trim)(void) = nullptr;   // force GC + return memory to the OS
+    void    (*idle)(void) = nullptr;   // trim + drop the name dictionaries
 
     // Resolve the innermost archive for archivePath + nested chain. Returns the
     // handle (or null) and sets owns=true if the caller must close it (i.e. it
@@ -82,7 +83,7 @@ public:
         if (path.empty()) return;
         std::wstring key = Lower(path);
         EnterCriticalSection(&m_cs);
-        m_topCache[key].refs++;
+        if (++m_topCache[key].refs == 1) m_live++;   // first browser of this archive
         LeaveCriticalSection(&m_cs);
     }
 
@@ -91,17 +92,23 @@ public:
         if (path.empty() || !EnsureLoaded()) return;
         std::wstring key = Lower(path);
         FoxArchive* toClose = nullptr;
+        bool lastArchive = false, freed = false;
         EnterCriticalSection(&m_cs);
         auto it = m_topCache.find(key);
         if (it != m_topCache.end() && --it->second.refs <= 0)
         {
             toClose = it->second.handle;
             m_topCache.erase(it);
+            freed = true;
+            if (--m_live <= 0) { m_live = 0; lastArchive = true; }
         }
         LeaveCriticalSection(&m_cs);
-        // Close + trim OUTSIDE the lock (both are managed calls).
+        // Close + trim OUTSIDE the lock (managed calls). When the LAST archive is
+        // gone, also drop the name dictionaries (idle); otherwise just trim.
         if (toClose && close) close(toClose);
-        if (toClose && trim)  trim();      // only worth a GC if we actually freed an index
+        if (!freed) return;
+        if (lastArchive && idle) idle();
+        else if (trim)           trim();
     }
 
     HMODULE SelfModule() const { return m_self; }
@@ -138,6 +145,7 @@ private:
         ftex_thumb_path = (decltype(ftex_thumb_path)) GetProcAddress(m_dll, "foxarc_ftex_thumb_path");
         free_blob   = (decltype(free_blob))   GetProcAddress(m_dll, "foxarc_free_blob");
         trim        = (decltype(trim))        GetProcAddress(m_dll, "foxarc_trim");
+        idle        = (decltype(idle))        GetProcAddress(m_dll, "foxarc_idle");
 
         auto setDict = (void(*)(const wchar_t*)) GetProcAddress(m_dll, "foxarc_set_dict_dir");
         if (setDict)
@@ -175,6 +183,7 @@ private:
     HMODULE m_self = nullptr; // set by DllMain
     HMODULE m_dll  = nullptr;
     bool    m_loaded = false;
+    int     m_live = 0;     // number of archives with at least one live folder
     CRITICAL_SECTION m_cs;
     std::map<std::wstring, CacheEntry> m_topCache;
 

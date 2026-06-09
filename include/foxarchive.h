@@ -61,6 +61,11 @@ void foxarc_set_dict_dir(const wchar_t* dir);
  * allocations don't linger in the managed heap until the host process exits. */
 void foxarc_trim(void);
 
+/* Like foxarc_trim, but also drops the cached name dictionaries. The shell
+ * calls this when NO archive is open at all, so a fully-closed shell holds
+ * essentially nothing; the dictionaries lazily reload on the next browse. */
+void foxarc_idle(void);
+
 /* Open a top-level archive from a Windows filesystem path.
  * On success *out receives a handle; close it with foxarc_close. */
 int32_t foxarc_open(const wchar_t* path, FoxArchive** out);

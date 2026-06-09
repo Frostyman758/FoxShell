@@ -144,11 +144,9 @@ internal sealed partial class ArchiveHandle : IDisposable
         PeekHead(path, bytes, head);
         if (GzFpkFile.IsGzMagic(head)) return OpenGzFpk(path, bytes);
 
-        var fpk = new FpkFile();
-        if (path is not null) fpk.ReadFrom(path);     // FPK loads all entry data in memory
-        else { using var ms = new MemoryStream(bytes!, writable: false); fpk.Read(ms); }
+        // LAZY: read only the fpk index; entry bytes are pulled on demand.
         var h = new ArchiveHandle(Kind.Fpk, path, bytes, null);
-        h.BuildFpkTree(fpk);
+        using (var s = h.OpenSource()) h.BuildFpkTree(LazyFpkReader.Read(s));
         return h;
     }
 
@@ -170,11 +168,9 @@ internal sealed partial class ArchiveHandle : IDisposable
         PeekHead(path, bytes, head);
         if (GzPftxsFile.IsGzPftxs(head)) return OpenGzPftxs(path, bytes);
 
-        var pftxs = new PftxsFile();
-        if (path is not null) pftxs.ReadFrom(path);   // loads all texture data in memory
-        else { using var ms = new MemoryStream(bytes!, writable: false); pftxs.Read(ms); }
+        // LAZY: read only the PFTX/TEXL/FTEX index; texture bytes pulled on demand.
         var h = new ArchiveHandle(Kind.Pftxs, path, bytes, null);
-        h.BuildPftxsTree(pftxs);
+        using (var s = h.OpenSource()) h.BuildPftxsTree(LazyPftxsReader.Read(s));
         return h;
     }
 
@@ -200,11 +196,9 @@ internal sealed partial class ArchiveHandle : IDisposable
 
     private static ArchiveHandle OpenSbp(string? path, byte[]? bytes)
     {
-        var sbp = new SbpFile();
-        if (path is not null) sbp.ReadFrom(path);     // loads all sub-files in memory
-        else { using var ms = new MemoryStream(bytes!, writable: false); sbp.Read(ms); }
+        // LAZY: read only the SBP entry table; sub-file bytes pulled on demand.
         var h = new ArchiveHandle(Kind.Sbp, path, bytes, null);
-        h.BuildSbpTree(sbp);
+        using (var s = h.OpenSource()) h.BuildSbpTree(LazySbpReader.Read(s));
         return h;
     }
 
@@ -278,8 +272,20 @@ internal sealed partial class ArchiveHandle : IDisposable
 
     public byte[] ReadFile(FileNode node)
     {
+        if (node.Lazy is { } lz)          // pull this entry's region on demand
+        {
+            var buf = new byte[lz.Length];
+            lock (_readLock)
+            {
+                using var s = OpenSource();
+                s.Seek(lz.Offset, SeekOrigin.Begin);
+                ReadExactInto(s, buf);
+            }
+            return Decode(buf, lz);
+        }
+
         if (_kind == Kind.Fpk)
-            return node.Fpk!.Data;       // already decrypted in memory
+            return node.Fpk!.Data;       // (legacy eager path; lazy now used)
         if (_kind == Kind.GzFpk)
             return node.GzFpk!.Data;     // GZ fpk data, already in memory (plaintext)
         if (_kind == Kind.Pftxs)
@@ -356,6 +362,25 @@ internal sealed partial class ArchiveHandle : IDisposable
     private static void ReadExactInto(Stream s, Span<byte> buf)
     {
         if (ReadAtMost(s, buf) != buf.Length) throw new EndOfStreamException();
+    }
+
+    // Decode a raw lazy region into the file's plaintext bytes.
+    private static byte[] Decode(byte[] b, LazyBlob lz)
+    {
+        if (lz.Decode == LazyBlob.Fpk)
+        {
+            // FPK entries are encrypted only when they begin 0x1B/0x1C; the key
+            // is the entry path. Matches FpkEntry.ReadData exactly.
+            if (b.Length > 0 && (b[0] == 0x1B || b[0] == 0x1C)
+                && FpkCrypto.TryDecrypt(b, lz.Key, out var dec)) return dec;
+            return b;
+        }
+        if (lz.Decode == LazyBlob.Xor9C)
+        {
+            for (int i = 0; i < b.Length; i++) b[i] ^= 0x9C;
+            return b;
+        }
+        return b;
     }
 
     public void Dispose() => _qar?.Close();

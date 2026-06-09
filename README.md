@@ -6,7 +6,7 @@ drill in, preview, extract, and drag files out, including **archives nested
 inside other archives** (an `.fpk` inside a `.dat`) without spilling anything to
 disk. Think 7-Zip's in-Explorer browsing, but for Fox Engine formats.
 
-## Why this project is split into two languages
+## Why this is split into two languages
 
 Managed (.NET) shell extensions are **officially unsupported** by Microsoft:
 `explorer.exe` can only host one CLR version process-wide, so a .NET in-proc
@@ -14,7 +14,9 @@ extension can be evicted by — or evict — any other managed extension on the
 machine. So the in-process COM object must be **native C++**.
 
 But all our archive-format knowledge (QAR/FPK parsing + the game's crypto and
-path-hashing) already lives in the C# `Fox_parser` libraries, and I am not redoing these tools a second time. 
+path-hashing) already lives in the C# `Fox_parser` libraries, and those are the
+byte-exact, regression-tested source of truth. Re-porting them to C++ would
+double the maintenance surface and lose the test oracle.
 
 So the two halves talk over a tiny **C ABI**:
 
@@ -28,16 +30,16 @@ So the two halves talk over a tiny **C ABI**:
   bridge/        foxarchive.dll    ── C# compiled with NativeAOT (no CLR at runtime)
       │  #include / <Compile Include> of the AOT-clean subset
       ▼
-  ../Fox_parser  QAR / FPK / GameHashing  ── My internal soon to be released tooling
+  ../Fox_parser  QAR / FPK / GameHashing  ── the existing managed source of truth
 ```
 
 `foxarchive.dll` is produced by **NativeAOT** (`<NativeLib>Shared</NativeLib>`),
 so it is a self-contained native DLL with no CLR dependency — safe to load into
 `explorer.exe`.
 
-## External Tools (not present here)
+## Modularity contract
 
-Everything related to my  `Fox_parser` tool is confined to **one file**:
+Everything that knows about `Fox_parser` is confined to **one file**:
 [`bridge/FoxParser.props`](bridge/FoxParser.props). It declares where
 `Fox_parser` lives and exactly which `.cs` files get compiled into the bridge.
 
@@ -46,9 +48,9 @@ Everything related to my  `Fox_parser` tool is confined to **one file**:
 - If `Fox_parser` moves, gets renamed, or reorganises a source file, edit
   `bridge/FoxParser.props` and nothing else.
 
-The bridge **only uses the needed files** rather than `ProjectReference`-ing the
+The bridge **cherry-picks source files** rather than `ProjectReference`-ing the
 `Fox_parser` projects, because those projects back-reference `MgsvModBldr.Core`
-(the GUI for my Mod Builder) through their JSON packer / ModBuilder code. The bridge pulls in
+(the GUI repo) through their JSON packer / ModBuilder code. The bridge pulls in
 only the pure binary-parsing + crypto path, keeping the AOT image Core-free.
 
 ## Layout
@@ -62,7 +64,7 @@ only the pure binary-parsing + crypto path, keeping the AOT image Core-free.
 
 ## Build
 
-Prereqs: .NET 10 SDK, Visual Studio 2026 with
+Prereqs (verified present on the dev box): .NET 10 SDK, Visual Studio 2026 with
 the C++ workload (MSVC 14.50+, Windows SDK 10.0.22621), CMake (bundled with VS).
 
 ```powershell

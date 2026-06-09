@@ -24,7 +24,11 @@ internal static unsafe class Exports
     // (potentially large) index/blob memory is released promptly instead of
     // lingering in the GC heap until explorer.exe restarts.
     [UnmanagedCallersOnly(EntryPoint = "foxarc_trim")]
-    public static void Trim()
+    public static void Trim() => TrimCore();
+
+    // Plain managed helper so other exports (Idle) can reuse it — an
+    // [UnmanagedCallersOnly] method can't be called directly from C#.
+    private static void TrimCore()
     {
         try
         {
@@ -34,6 +38,16 @@ internal static unsafe class Exports
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
         catch { }
+    }
+
+    // Called when NO archive is open any more: in addition to trimming, drop the
+    // cached name dictionaries (qar/gzs/fpk ~ tens of MB) so a fully-closed shell
+    // holds essentially nothing. They lazily reload on the next browse.
+    [UnmanagedCallersOnly(EntryPoint = "foxarc_idle")]
+    public static void Idle()
+    {
+        try { QarNameDictionary.ClearAll(); } catch { }
+        TrimCore();
     }
 
     // Tell the bridge where its sidecar files (qar_dictionary.txt) live. Call

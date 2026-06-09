@@ -42,4 +42,16 @@ internal static class QarNameDictionary
         catch { _dict = null; }
         return _dict;
     }
+
+    // Drop every cached name dictionary (qar/gzs/fpk) so its memory is freed when
+    // no archive is open. They lazily reload on the next browse. The dir is kept,
+    // so reload uses the same location. (Re-assigning DictionaryDirectory to its
+    // current value is how G0sHash/FpkDictionary expose a cache reset without a
+    // Fox_parser change.)
+    public static void ClearAll()
+    {
+        _tried = false; _dict = null;                        // qar (ours)
+        G0sHash.DictionaryDirectory = G0sHash.DictionaryDirectory;          // gzs
+        FpkDictionary.DictionaryDirectory = FpkDictionary.DictionaryDirectory; // fpk
+    }
 }

@@ -41,13 +41,12 @@ internal sealed partial class ArchiveHandle
         }
     }
 
-    private void BuildFpkTree(FpkFile fpk)
+    private void BuildFpkTree(List<LazyFpkReader.Entry> entries)
     {
-        foreach (var e in fpk.Entries)
+        foreach (var e in entries)         // index only — bytes pulled on demand
         {
-            var path = e.FilePath.Data;
-            var leaf = AddPath(path, (ulong)e.Data.LongLength, 0);
-            leaf.Fpk = e;
+            var leaf = AddPath(e.Path, (ulong)e.DataSize, 0);
+            leaf.Lazy = new LazyBlob { Offset = e.DataOffset, Length = e.DataSize, Decode = LazyBlob.Fpk, Key = e.Path };
             leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
         }
     }
@@ -76,14 +75,14 @@ internal sealed partial class ArchiveHandle
     // .sbp — sub-files tagged by a 4-byte magic (bnk/stp/sab), no names. Name
     // them "<index>.<tag>"; the stp/sab ones are themselves containers (drilled
     // into by magic) while bnk is a leaf.
-    private void BuildSbpTree(SbpFile sbp)
+    private void BuildSbpTree(List<LazySbpReader.Entry> entries)
     {
-        for (int i = 0; i < sbp.Entries.Count; i++)
+        for (int i = 0; i < entries.Count; i++)   // index only — sub-files pulled on demand
         {
-            var e = sbp.Entries[i];
+            var e = entries[i];
             var tag = string.IsNullOrEmpty(e.Magic) ? "bin" : e.Magic;
-            var leaf = AddPath($"{i}.{tag}", (ulong)e.Data.LongLength, 0);
-            leaf.Blob = e.Data;
+            var leaf = AddPath($"{i}.{tag}", (ulong)e.DataSize, 0);
+            leaf.Lazy = new LazyBlob { Offset = e.DataOffset, Length = e.DataSize, Decode = LazyBlob.Raw };
             leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
         }
     }
@@ -139,11 +138,10 @@ internal sealed partial class ArchiveHandle
         }
     }
 
-    private void BuildPftxsTree(PftxsFile pftxs)
+    private void BuildPftxsTree(List<LazyPftxsReader.Entry> entries)
     {
         var dict = QarNameDictionary.Get();
-        foreach (var g in pftxs.Groups)
-        foreach (var e in g.Entries)
+        foreach (var e in entries)         // index only — texture bytes pulled on demand
         {
             string path;
             if (dict is not null)
@@ -153,8 +151,8 @@ internal sealed partial class ArchiveHandle
             }
             else path = $"_unresolved/{e.Hash:x16}.ftex";
 
-            var leaf = AddPath(path, (ulong)e.Data.LongLength, e.Hash);
-            leaf.Pftxs = e;
+            var leaf = AddPath(path, (ulong)e.DataSize, e.Hash);
+            leaf.Lazy = new LazyBlob { Offset = e.DataOffset, Length = e.DataSize, Decode = LazyBlob.Raw };
             leaf.IsArchive = FoxFormats.IsNestedContainer(leaf.Name);
         }
     }
