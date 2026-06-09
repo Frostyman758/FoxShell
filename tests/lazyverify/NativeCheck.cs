@@ -1,7 +1,10 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using MgsvModBldr.Tools.Fpk;
 using MgsvModBldr.Tools.Pftxs;
 using MgsvModBldr.Tools.Sbp;
+using MgsvModBldr.Tools.Fsop;
+using MgsvModBldr.Tools.Mtar;
 
 // End-to-end check against the ACTUAL shipped NativeAOT binary (dist\foxarchive.dll):
 // open each fixture through the C ABI, recursively read every file via foxarc_read,
@@ -59,6 +62,8 @@ internal static class NativeCheck
         int fails = 0;
         fails += CheckFpk();
         fails += CheckSbp();
+        fails += CheckFsop();   // exercises the Xor9C decode path through the DLL
+        fails += CheckMtar();   // exercises gani/trk/chnk/exchnk regions + enchnk
         Console.WriteLine($"--- NATIVE DLL end-to-end: {(fails == 0 ? "ALL OK" : fails + " FAILED")} ---");
         return fails;
     }
@@ -113,6 +118,71 @@ internal static class NativeCheck
             if (!ok) Console.WriteLine($"  NATIVE FAIL {Path.GetFileName(path)}");
         }
         Console.WriteLine($"    sbp via DLL: {files} files, {entries} entries, {fails} bad");
+        return fails;
+    }
+
+    static string FsopName(string raw)   // mirrors LazyFsopReader.DecodeName
+    {
+        var s = raw.TrimEnd('\0').Trim();
+        foreach (var c in new[] { '<', '>', ':', '"', '/', '\\', '|', '?', '*' }) s = s.Replace(c, '_');
+        return s.Length == 0 ? "unnamed" : s;
+    }
+
+    static int CheckFsop()
+    {
+        int fails = 0, files = 0, entries = 0;
+        foreach (var path in Directory.GetFiles(@"C:\rsearch\test_fixtures", "*.fsop", SearchOption.AllDirectories))
+        {
+            files++;
+            var eager = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            FsopFile ff; using (var fs = File.OpenRead(path)) ff = FsopFile.Read(fs);
+            for (int i = 0; i < ff.Shaders.Count; i++)
+            {
+                var stem = $"{i:0000}_{FsopName(ff.Shaders[i].Name)}";
+                eager[$"{stem}_vs.fxc"] = ff.Shaders[i].Vs;
+                eager[$"{stem}_ps.fxc"] = ff.Shaders[i].Ps;
+            }
+
+            if (foxarc_open(path, out var arc) != 0) { Console.WriteLine($"  NATIVE open FAIL {Path.GetFileName(path)}"); fails++; continue; }
+            var got = new List<string>(); WalkFiles(arc, "", got);
+            bool ok = got.Count == eager.Count;
+            foreach (var p in got)
+            {
+                entries++;
+                var nb = Read(arc, p);
+                if (!eager.TryGetValue(p, out var eb) || !eb.AsSpan().SequenceEqual(nb)) { ok = false; fails++; Console.WriteLine($"  NATIVE DIFF {Path.GetFileName(path)} :: {p}"); }
+            }
+            foxarc_close(arc);
+            if (!ok) Console.WriteLine($"  NATIVE FAIL {Path.GetFileName(path)}");
+        }
+        Console.WriteLine($"    fsop via DLL: {files} files, {entries} blobs, {fails} bad");
+        return fails;
+    }
+
+    static int CheckMtar()
+    {
+        int fails = 0, files = 0, entries = 0;
+        foreach (var path in Directory.GetFiles(@"C:\rsearch\test_fixtures", "*.mtar", SearchOption.AllDirectories))
+        {
+            files++;
+            List<MtarItem> items;
+            try { items = MtarBrowse.Read(File.ReadAllBytes(path)); } catch { continue; }
+            var eager = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            foreach (var it in items) eager[it.Name.Replace('\\', '/').TrimStart('/')] = it.Data;
+
+            if (foxarc_open(path, out var arc) != 0) { Console.WriteLine($"  NATIVE open FAIL {Path.GetFileName(path)}"); fails++; continue; }
+            var got = new List<string>(); WalkFiles(arc, "", got);
+            bool ok = got.Count == eager.Count;
+            foreach (var p in got)
+            {
+                entries++;
+                var nb = Read(arc, p);
+                if (!eager.TryGetValue(p, out var eb) || !eb.AsSpan().SequenceEqual(nb)) { ok = false; fails++; Console.WriteLine($"  NATIVE DIFF {Path.GetFileName(path)} :: {p}"); }
+            }
+            foxarc_close(arc);
+            if (!ok) Console.WriteLine($"  NATIVE FAIL {Path.GetFileName(path)}");
+        }
+        Console.WriteLine($"    mtar via DLL: {files} files, {entries} items, {fails} bad");
         return fails;
     }
 }

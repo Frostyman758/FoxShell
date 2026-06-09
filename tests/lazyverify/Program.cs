@@ -1,7 +1,10 @@
 using MgsvModBldr.Tools.Fpk;
 using MgsvModBldr.Tools.Pftxs;
 using MgsvModBldr.Tools.Sbp;
-using MgsvModBldr.Tools.NativeBridge;   // Lazy{Fpk,Pftxs,Sbp}Reader (compiled in)
+using MgsvModBldr.Tools.Stp;
+using MgsvModBldr.Tools.Fsop;
+using MgsvModBldr.Tools.Mtar;
+using MgsvModBldr.Tools.NativeBridge;   // Lazy{Fpk,Pftxs,Sbp,Stp,Sab,Fsop,Mtar}Reader (compiled in)
 
 // Lazy-vs-eager byte-equality check for the rel2.5 lazy fpk path.
 //
@@ -140,10 +143,115 @@ foreach (var path in sfiles)
 }
 Console.WriteLine($"--- SBP: {sfiles.Length} files, {sEntries} entries, {sMism} mismatched ---");
 
+// region reader
+static byte[] Region(FileStream fs, long off, int size)
+{
+    fs.Position = off; var b = new byte[size];
+    int n = 0; while (n < b.Length) { int r = fs.Read(b, n, b.Length - n); if (r == 0) break; n += r; }
+    return b;
+}
+
+// ── STP ──────────────────────────────────────────────────────────────────────
+int stpFails = StpCheck(pdir);
+// ── SAB ──────────────────────────────────────────────────────────────────────
+int sabFails = SabCheck(pdir);
+// ── FSOP ─────────────────────────────────────────────────────────────────────
+int fsopFails = FsopCheck(pdir);
+// ── MTAR ─────────────────────────────────────────────────────────────────────
+int mtarFails = MtarCheck(pdir);
+
+int StpCheck(string root)
+{
+    var files = Directory.GetFiles(root, "*.stp", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+    int ents = 0, fails = 0;
+    foreach (var path in files)
+    {
+        var eager = new List<byte[]>();
+        var sp = new StreamedPackage();
+        using (var fs = File.OpenRead(path)) { try { sp.Read(fs); } catch { Console.WriteLine($"SKIP {Path.GetFileName(path)}"); continue; } }
+        foreach (var e in sp.Entries) { eager.Add(e.Wem); if (e.Ls2.Length > 0 || sp.Version == StpVersion.TPP) eager.Add(e.Ls2); }
+
+        var lazy = new List<byte[]>();
+        using (var fs = File.OpenRead(path))
+            foreach (var en in LazyStpReader.Read(fs))
+            { lazy.Add(Region(fs, en.WemOffset, en.WemSize)); if (en.Ls2Size >= 0) lazy.Add(Region(fs, en.Ls2Offset, en.Ls2Size)); }
+
+        // eager/lazy add wem then ls2 in opposite interleave; normalise by sorting indices is wrong —
+        // instead rebuild eager in the SAME (wem, ls2) order the lazy uses:
+        var eo = new List<byte[]>();
+        foreach (var e in sp.Entries) { eo.Add(e.Wem); if (sp.Version == StpVersion.TPP) eo.Add(e.Ls2); }
+        bool ok = eo.Count == lazy.Count;
+        for (int i = 0; i < Math.Min(eo.Count, lazy.Count); i++) { ents++; if (!eo[i].AsSpan().SequenceEqual(lazy[i])) { ok = false; fails++; Console.WriteLine($"  STP DIFF {Path.GetFileName(path)} [{i}]"); } }
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")}  {Path.GetFileName(path),-28} {sp.Entries.Count,4} entries");
+    }
+    Console.WriteLine($"--- STP: {files.Length} files, {ents} blobs, {fails} mismatched ---");
+    return fails;
+}
+
+int SabCheck(string root)
+{
+    var files = Directory.GetFiles(root, "*.sab", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+    int ents = 0, fails = 0;
+    foreach (var path in files)
+    {
+        var sa = new StreamedAnimation();
+        using (var fs = File.OpenRead(path)) { try { sa.Read(fs); } catch { Console.WriteLine($"SKIP {Path.GetFileName(path)}"); continue; } }
+        var lazy = new List<byte[]>();
+        using (var fs = File.OpenRead(path)) foreach (var en in LazySabReader.Read(fs)) lazy.Add(Region(fs, en.Offset, en.Size));
+        bool ok = sa.Entries.Count == lazy.Count;
+        for (int i = 0; i < Math.Min(sa.Entries.Count, lazy.Count); i++) { ents++; if (!sa.Entries[i].Lsst.AsSpan().SequenceEqual(lazy[i])) { ok = false; fails++; Console.WriteLine($"  SAB DIFF {Path.GetFileName(path)} [{i}]"); } }
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")}  {Path.GetFileName(path),-28} {sa.Entries.Count,4} entries");
+    }
+    Console.WriteLine($"--- SAB: {files.Length} files, {ents} blobs, {fails} mismatched ---");
+    return fails;
+}
+
+int FsopCheck(string root)
+{
+    var files = Directory.GetFiles(root, "*.fsop", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+    int ents = 0, fails = 0;
+    foreach (var path in files)
+    {
+        FsopFile ff; using (var fs = File.OpenRead(path)) ff = FsopFile.Read(fs);
+        var lazy = new List<byte[]>();
+        using (var fs = File.OpenRead(path))
+            foreach (var en in LazyFsopReader.Read(fs))
+            { lazy.Add(Xor(Region(fs, en.VsOffset, en.VsSize))); lazy.Add(Xor(Region(fs, en.PsOffset, en.PsSize))); }
+        var eo = new List<byte[]>(); foreach (var s in ff.Shaders) { eo.Add(s.Vs); eo.Add(s.Ps); }
+        bool ok = eo.Count == lazy.Count;
+        for (int i = 0; i < Math.Min(eo.Count, lazy.Count); i++) { ents++; if (!eo[i].AsSpan().SequenceEqual(lazy[i])) { ok = false; fails++; Console.WriteLine($"  FSOP DIFF {Path.GetFileName(path)} [{i}]"); } }
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")}  {Path.GetFileName(path),-28} {ff.Shaders.Count,4} shaders");
+    }
+    Console.WriteLine($"--- FSOP: {files.Length} files, {ents} blobs, {fails} mismatched ---");
+    return fails;
+    static byte[] Xor(byte[] b) { for (int i = 0; i < b.Length; i++) b[i] ^= 0x9C; return b; }
+}
+
+int MtarCheck(string root)
+{
+    var files = Directory.GetFiles(root, "*.mtar", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+    int ents = 0, fails = 0;
+    foreach (var path in files)
+    {
+        var bytes = File.ReadAllBytes(path);
+        List<MtarItem> eager; try { eager = MtarBrowse.Read(bytes); } catch { Console.WriteLine($"SKIP {Path.GetFileName(path)}"); continue; }
+        var lazy = new List<(string name, byte[] data)>();
+        using (var fs = File.OpenRead(path))
+            foreach (var it in LazyMtarReader.Read(fs))
+                lazy.Add((it.Name, it.Eager ?? Region(fs, it.Offset, it.Size)));
+        bool ok = eager.Count == lazy.Count;
+        for (int i = 0; i < Math.Min(eager.Count, lazy.Count); i++)
+        { ents++; if (eager[i].Name != lazy[i].name || !eager[i].Data.AsSpan().SequenceEqual(lazy[i].data)) { ok = false; fails++; Console.WriteLine($"  MTAR DIFF {Path.GetFileName(path)} [{i}] {eager[i].Name} vs {lazy[i].name}"); } }
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")}  {Path.GetFileName(path),-28} {eager.Count,4} items");
+    }
+    Console.WriteLine($"--- MTAR: {files.Length} files, {ents} items, {fails} mismatched ---");
+    return fails;
+}
+
 Console.WriteLine();
 int nativeFails = NativeCheck.Run();
 
 Console.WriteLine();
-int allFails = fileFails + pFails + sFails + nativeFails;
+int allFails = fileFails + pFails + sFails + stpFails + sabFails + fsopFails + mtarFails + nativeFails;
 Console.WriteLine($"=== TOTAL {allFails} failure(s) ===");
 return allFails == 0 ? 0 : 1;

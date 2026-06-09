@@ -88,53 +88,62 @@ internal sealed partial class ArchiveHandle
     }
 
     // .stp — each entry is a hash + a .wem (and, on TPP, a .ls2 lipsync).
-    private void BuildStpTree(StreamedPackage stp)
+    private void BuildStpTree(List<LazyStpReader.Entry> entries)
     {
-        foreach (var e in stp.Entries)
+        foreach (var e in entries)         // index only — wem/ls2 pulled on demand
         {
             var stem = e.Name.ToString("x8");
-            var wem = AddPath($"{stem}.wem", (ulong)e.Wem.LongLength, e.Name);
-            wem.Blob = e.Wem;
-            if (e.Ls2.Length > 0)
+            var wem = AddPath($"{stem}.wem", (ulong)e.WemSize, e.Name);
+            wem.Lazy = new LazyBlob { Offset = e.WemOffset, Length = e.WemSize, Decode = LazyBlob.Raw };
+            if (e.Ls2Size >= 0)
             {
-                var ls2 = AddPath($"{stem}.ls2", (ulong)e.Ls2.LongLength, e.Name);
-                ls2.Blob = e.Ls2;
+                var ls2 = AddPath($"{stem}.ls2", (ulong)e.Ls2Size, e.Name);
+                ls2.Lazy = new LazyBlob { Offset = e.Ls2Offset, Length = e.Ls2Size, Decode = LazyBlob.Raw };
             }
         }
     }
 
     // .sab — each entry is a 64-bit hash + a combined .lsst lip-sync block.
-    private void BuildSabTree(StreamedAnimation sab)
+    private void BuildSabTree(List<LazySabReader.Entry> entries)
     {
-        foreach (var e in sab.Entries)
+        foreach (var e in entries)         // index only — lsst pulled on demand
         {
-            var leaf = AddPath($"{e.Name:x16}.lsst", (ulong)e.Lsst.LongLength, e.Name);
-            leaf.Blob = e.Lsst;
+            var leaf = AddPath($"{e.Name:x16}.lsst", (ulong)e.Size, e.Name);
+            leaf.Lazy = new LazyBlob { Offset = e.Offset, Length = e.Size, Decode = LazyBlob.Raw };
         }
     }
 
     // .fsop — each shader becomes "<name>_vs.fxc" + "<name>_ps.fxc" (DXBC blobs,
-    // already XOR-decoded). Names can collide across entries, so prefix the index.
-    private void BuildFsopTree(FsopFile fsop)
+    // XOR-0x9C decoded on demand). Names can collide across entries, so prefix the index.
+    private void BuildFsopTree(List<LazyFsopReader.Entry> shaders)
     {
-        for (int i = 0; i < fsop.Shaders.Count; i++)
+        for (int i = 0; i < shaders.Count; i++)   // index only — blobs decoded on demand
         {
-            var s = fsop.Shaders[i];
+            var s = shaders[i];
             var stem = $"{i:0000}_{s.Name}";
-            var vs = AddPath($"{stem}_vs.fxc", (ulong)s.Vs.LongLength, 0);
-            vs.Blob = s.Vs;
-            var ps = AddPath($"{stem}_ps.fxc", (ulong)s.Ps.LongLength, 0);
-            ps.Blob = s.Ps;
+            var vs = AddPath($"{stem}_vs.fxc", (ulong)s.VsSize, 0);
+            vs.Lazy = new LazyBlob { Offset = s.VsOffset, Length = s.VsSize, Decode = LazyBlob.Xor9C };
+            var ps = AddPath($"{stem}_ps.fxc", (ulong)s.PsSize, 0);
+            ps.Lazy = new LazyBlob { Offset = s.PsOffset, Length = s.PsSize, Decode = LazyBlob.Xor9C };
         }
     }
 
-    // .mtar — the flat gani/trk/chnk/exchnk/enchnk file set MtarBrowse extracts.
-    private void BuildMtarTree(List<MtarItem> items)
+    // .mtar — the flat gani/trk/chnk/exchnk/enchnk file set. Lazy for everything
+    // except the rare .enchnk (whose size needs a scan, so it's read at open).
+    private void BuildMtarTree(List<LazyMtarReader.Item> items)
     {
         foreach (var e in items)
         {
-            var leaf = AddPath(e.Name, (ulong)e.Data.LongLength, 0);
-            leaf.Blob = e.Data;
+            if (e.Eager is not null)       // .enchnk — already in memory (tiny)
+            {
+                var leaf = AddPath(e.Name, (ulong)e.Eager.LongLength, 0);
+                leaf.Blob = e.Eager;
+            }
+            else
+            {
+                var leaf = AddPath(e.Name, (ulong)e.Size, 0);
+                leaf.Lazy = new LazyBlob { Offset = e.Offset, Length = e.Size, Decode = LazyBlob.Raw };
+            }
         }
     }
 

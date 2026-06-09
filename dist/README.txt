@@ -6,12 +6,13 @@ preview .ftex textures, and drag files straight out. Works for TPP and Ground
 Zeroes, including archives nested inside other archives. Nothing is written to
 disk while browsing — only when you open or drag a file out.
 
-rel2.5 "the lazy update": large archives (.dat/.g0s/.fpk/.pftxs/.sbp) are now
-read part-by-part — only the table of contents is loaded when you open one, and
-a file's bytes are pulled (and decrypted) the moment you actually open or drag
-it. Opening a multi-hundred-MB archive costs only its index, not its contents.
-And when no archive is open at all, the name dictionaries are dropped too, so a
-fully-closed shell holds essentially nothing (they reload on the next browse).
+rel2.5 "the lazy update": EVERY archive type is now read part-by-part — only the
+table of contents is loaded when you open one, and a file's bytes are pulled (and
+decrypted / XOR-decoded) the moment you actually open or drag it out. This covers
+.dat/.qar and .g0s (already lazy), plus .fpk/.fpkd, .pftxs, .sbp, .stp, .sab,
+.fsop and .mtar. Opening a multi-hundred-MB archive costs only its index, not its
+contents. And when no archive is open at all, the name dictionaries are dropped
+too, so a fully-closed shell holds essentially nothing (they reload on next browse).
 
 Supported (detected by content where possible, not just extension):
   .dat / .qar    QAR archives (TPP)

@@ -63,11 +63,13 @@ internal sealed partial class ArchiveHandle : IDisposable
         // Headerless containers, identified by extension when nothing matched.
         if (fmt == FoxFormat.Unknown && path.EndsWith(".fsop", StringComparison.OrdinalIgnoreCase))
         {
+            // Detect from the bytes, but open lazily against the file (the detect
+            // buffer is dropped; reads come from disk on demand).
             var bytes = File.ReadAllBytes(path);
-            if (FoxFormats.IsFsop(bytes)) return OpenFsop(bytes);   // confirmed by structure
+            if (FoxFormats.IsFsop(bytes)) return OpenFsop(path, null);   // confirmed by structure
         }
         if (fmt == FoxFormat.Unknown && path.EndsWith(".mtar", StringComparison.OrdinalIgnoreCase))
-            return OpenMtar(File.ReadAllBytes(path));               // .mtar has no detectable magic
+            return OpenMtar(path, null);                            // .mtar has no detectable magic
 
         return fmt switch
         {
@@ -97,10 +99,10 @@ internal sealed partial class ArchiveHandle : IDisposable
         // has no detectable magic, so it's trusted by extension (OpenNested is
         // only reached for entries the listing already flagged as containers).
         if (fmt == FoxFormat.Unknown && FoxFormats.IsFsop(bytes))
-            return OpenFsop(bytes);
+            return OpenFsop(null, bytes);
         if (fmt == FoxFormat.Unknown && name is not null
             && name.EndsWith(".mtar", StringComparison.OrdinalIgnoreCase))
-            return OpenMtar(bytes);
+            return OpenMtar(null, bytes);
 
         return fmt switch
         {
@@ -204,40 +206,38 @@ internal sealed partial class ArchiveHandle : IDisposable
 
     private static ArchiveHandle OpenStp(string? path, byte[]? bytes)
     {
-        var stp = new StreamedPackage();
-        if (path is not null) stp.ReadFrom(path);
-        else { using var ms = new MemoryStream(bytes!, writable: false); stp.Read(ms); }
+        // LAZY: read only the STP entry table; wem/ls2 bytes pulled on demand.
         var h = new ArchiveHandle(Kind.Stp, path, bytes, null);
-        h.BuildStpTree(stp);
+        using (var s = h.OpenSource()) h.BuildStpTree(LazyStpReader.Read(s));
         return h;
     }
 
     private static ArchiveHandle OpenSab(string? path, byte[]? bytes)
     {
-        var sab = new StreamedAnimation();
-        if (path is not null) sab.ReadFrom(path);
-        else { using var ms = new MemoryStream(bytes!, writable: false); sab.Read(ms); }
+        // LAZY: read only the SAB entry table; lsst bytes pulled on demand.
         var h = new ArchiveHandle(Kind.Sab, path, bytes, null);
-        h.BuildSabTree(sab);
+        using (var s = h.OpenSource()) h.BuildSabTree(LazySabReader.Read(s));
         return h;
     }
 
     // fsop entries (the decoded shader blobs) are kept on the tree, so the raw
     // bytes aren't retained on the handle.
-    private static ArchiveHandle OpenFsop(byte[] bytes)
+    private static ArchiveHandle OpenFsop(string? path, byte[]? bytes)
     {
-        FsopFile fsop;
-        using (var ms = new MemoryStream(bytes, writable: false)) fsop = FsopFile.Read(ms);
-        var h = new ArchiveHandle(Kind.Fsop, null, null, null);
-        h.BuildFsopTree(fsop);
+        // LAZY: walk the structure for offsets/sizes only; vs/ps DXBC blobs are
+        // XOR-0x9C decoded on demand. (Detection already confirmed the structure.)
+        var h = new ArchiveHandle(Kind.Fsop, path, bytes, null);
+        using (var s = h.OpenSource()) h.BuildFsopTree(LazyFsopReader.Read(s));
         return h;
     }
 
-    private static ArchiveHandle OpenMtar(byte[] bytes)
+    private static ArchiveHandle OpenMtar(string? path, byte[]? bytes)
     {
-        var items = MtarBrowse.Read(bytes);    // v1/v2 gani/trk/chnk/exchnk/enchnk
-        var h = new ArchiveHandle(Kind.Mtar, null, null, null);
-        h.BuildMtarTree(items);
+        // LAZY: parse the v1/v2 index (offsets/sizes only) by driving the verified
+        // MtarFile/MtarFile2 readers; each gani/trk/chnk/exchnk is pulled on demand.
+        // (.enchnk size needs a scan, so its tiny block is read once at open.)
+        var h = new ArchiveHandle(Kind.Mtar, path, bytes, null);
+        using (var s = h.OpenSource()) h.BuildMtarTree(LazyMtarReader.Read(s));
         return h;
     }
 
@@ -284,16 +284,15 @@ internal sealed partial class ArchiveHandle : IDisposable
             return Decode(buf, lz);
         }
 
-        if (_kind == Kind.Fpk)
-            return node.Fpk!.Data;       // (legacy eager path; lazy now used)
+        if (node.Blob is { } blob)       // resolved-in-memory (mtar .enchnk; rare)
+            return blob;
+
+        // GZ fpk/pftxs are nested-only (always opened from an already-in-memory
+        // g0s blob), so their bytes are decoded up front — lazy would save nothing.
         if (_kind == Kind.GzFpk)
-            return node.GzFpk!.Data;     // GZ fpk data, already in memory (plaintext)
-        if (_kind == Kind.Pftxs)
-            return node.Pftxs!.Data;     // texture bytes, already in memory
+            return node.GzFpk!.Data;
         if (_kind == Kind.GzPftxs)
-            return node.GzPftxs!.Data;   // GZ texture bytes, already in memory
-        if (_kind is Kind.Sbp or Kind.Stp or Kind.Sab or Kind.Fsop or Kind.Mtar)
-            return node.Blob!;           // container blob, already in memory
+            return node.GzPftxs!.Data;
 
         if (_kind == Kind.G0s)           // GZ QAR: read raw blob, then decrypt
         {

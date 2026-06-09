@@ -24,11 +24,11 @@ internal sealed class FileNode
     public ulong  Hash;
     public bool   IsArchive;     // a nested container we can drill into
 
-    // Exactly one of these is set, depending on the owning archive's kind.
+    // Set per owning-archive kind for the formats still read eagerly (QAR + G0s
+    // decrypt per entry; the GZ readers are nested-only). Lazy formats use Lazy
+    // instead (see below); fpk/pftxs/sbp/stp/sab/fsop/mtar are all lazy now.
     public QarEntry?     Qar;
-    public FpkEntry?     Fpk;
     public GzFpkEntry?   GzFpk;
-    public PftxsEntry?   Pftxs;
     public GzPftxsEntry? GzPftxs;
     public G0sEntry?     G0s;
 

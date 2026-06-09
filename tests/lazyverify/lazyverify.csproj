@@ -17,13 +17,29 @@
     <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.GameHashing\GameHash.cs"     Link="GameHashing\GameHash.cs" />
     <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.GameHashing\GameCityHash.cs" Link="GameHashing\GameCityHash.cs" />
 
-    <!-- Eager TPP pftxs + sbp readers (oracles). -->
+    <!-- Eager oracles: pftxs, sbp, stp/sab, fsop, mtar (+ its reader set). -->
     <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Pftxs\PftxsFile.cs" Link="Pftxs\PftxsFile.cs" />
     <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Sbp\SbpFile.cs"     Link="Sbp\SbpFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Stp\StpFile.cs"     Link="Stp\StpFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Fsop\FsopFile.cs"   Link="Fsop\FsopFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\MtarBrowse.cs"          Link="Mtar\MtarBrowse.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\MtarExtensions.cs"      Link="Mtar\MtarExtensions.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Common\ArchiveFile.cs"  Link="Mtar\ArchiveFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarFile.cs"       Link="Mtar\MtarFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarFile2.cs"      Link="Mtar\MtarFile2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarGaniFile.cs"   Link="Mtar\MtarGaniFile.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarGaniFile2.cs"  Link="Mtar\MtarGaniFile2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarTrack2.cs"     Link="Mtar\MtarTrack2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Mtar\MtarChunk2.cs"     Link="Mtar\MtarChunk2.cs" />
+    <Compile Include="$(FoxParserRoot)\MgsvModBldr.Tools.Mtar\Utility\NameResolver.cs" Link="Mtar\NameResolver.cs" />
+    <Compile Include="C:\rsearch\mgsv_modbldr\csgui\MgsvModBldr.Core\CityHash64.cs" Link="Core\CityHash64.cs" />
 
     <!-- The exact lazy readers the bridge ships. -->
     <Compile Include="..\..\bridge\LazyFpkReader.cs"   Link="bridge\LazyFpkReader.cs" />
     <Compile Include="..\..\bridge\LazyPftxsReader.cs" Link="bridge\LazyPftxsReader.cs" />
     <Compile Include="..\..\bridge\LazySbpReader.cs"   Link="bridge\LazySbpReader.cs" />
+    <Compile Include="..\..\bridge\LazyStpReader.cs"   Link="bridge\LazyStpReader.cs" />
+    <Compile Include="..\..\bridge\LazyFsopReader.cs"  Link="bridge\LazyFsopReader.cs" />
+    <Compile Include="..\..\bridge\LazyMtarReader.cs"  Link="bridge\LazyMtarReader.cs" />
   </ItemGroup>
 </Project>
